@@ -25,10 +25,20 @@ jobs:
         run: /tmp/deepsix_native_evaluator_digest > /tmp/deepsix_native_evaluator_digest.txt
       - name: Verify native evaluator exhaustively against Python oracle
         run: python tools/verify_native_evaluator_digest.py /tmp/deepsix_native_evaluator_digest.txt
+      - name: Compile exact lookup evaluator parity test
+        run: >-
+          g++ -std=c++17 -O3 -Wall -Wextra -pedantic
+          native/ShortDeckEvaluator.cpp
+          native/FastShortDeckEvaluator.cpp
+          native/tests/fast_shortdeck_evaluator_test.cpp
+          -o /tmp/deepsix_fast_evaluator_test
+      - name: Verify exact lookup evaluator parity
+        run: /tmp/deepsix_fast_evaluator_test
       - name: Compile native evaluator informational benchmark
         run: >-
           g++ -std=c++17 -O3 -DNDEBUG -Wall -Wextra -pedantic
           native/ShortDeckEvaluator.cpp
+          native/FastShortDeckEvaluator.cpp
           native/bench/shortdeck_evaluator_benchmark.cpp
           -o /tmp/deepsix_native_evaluator_benchmark
       - name: Report native evaluator throughput (non-gating)
