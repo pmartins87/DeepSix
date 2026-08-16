@@ -189,6 +189,30 @@ def _next_pending(
     raise BettingStateError("pending action missing from action order")
 
 
+def _normalize_needs_action(
+    players: tuple[BettingPlayer, ...],
+    current_bet: int,
+    needs_action: frozenset[int],
+) -> frozenset[int]:
+    """Remove impossible dry-side-pot actions while preserving call/fold duties.
+
+    If exactly one player still has chips behind, no further bet/raise can create
+    action because every opponent is folded or all-in. That lone player still
+    must act if below the current price, but needs no redundant check when
+    already matched.
+    """
+    actionable = [
+        player
+        for player in players
+        if not player.folded and not player.all_in and player.stack > 0
+    ]
+    if len(actionable) == 1:
+        lone = actionable[0]
+        if lone.committed_street >= current_bet:
+            return frozenset(seat for seat in needs_action if seat != lone.seat)
+    return needs_action
+
+
 def start_betting_round(
     *,
     street: Street,
@@ -217,6 +241,8 @@ def start_betting_round(
     )
     if hand_ended:
         needs_action = frozenset()
+    else:
+        needs_action = _normalize_needs_action(players, current_bet, needs_action)
     closed = not needs_action
     state = BettingRoundState(
         street=street,
@@ -268,11 +294,18 @@ def legal_actions(state: BettingRoundState, seat: int | None = None) -> RoundLeg
     raise_right = _raise_right_open(state, actor)
     max_raise_to = player.committed_street + player.stack
     full_raise_to = state.current_bet + state.last_full_raise_increment
+    opponent_can_respond = any(
+        other.seat != actor
+        and not other.folded
+        and not other.all_in
+        and other.stack > 0
+        for other in state.players
+    )
 
     can_raise = False
     min_raise_to = 0
     legal_max_raise_to = 0
-    if raise_right and max_raise_to > state.current_bet:
+    if raise_right and opponent_can_respond and max_raise_to > state.current_bet:
         if max_raise_to >= full_raise_to:
             can_raise = True
             min_raise_to = full_raise_to
@@ -408,6 +441,7 @@ def apply_action(
             if not other.folded and not other.all_in and other.stack > 0
         }
         needs_action = frozenset(seat for seat in needs_action if seat in eligible)
+        needs_action = _normalize_needs_action(players, current_bet, needs_action)
 
     closed = not needs_action
     next_actor = None if closed else _next_pending(state.action_order, needs_action, actor)
