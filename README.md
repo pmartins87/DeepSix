@@ -87,13 +87,56 @@ Toda mudança relevante de encoder, arquitetura, loss, sampling, abstraction ou 
 
 Quando um conceito legado do OpenHoldem não possuir a mesma semântica em 6+, ele não será reaproveitado apenas para evitar mudanças. Compatibilidade aparente é mais perigosa do que uma quebra explícita. Símbolos inválidos devem ser substituídos, desabilitados ou marcados como incompatíveis.
 
-## Estado atual
+## Estado atual — 16/08/2026
 
-**Fase 0 — fundação do projeto.**
+**Fase 0 parcialmente congelada; Fases 1A (Core) e 1B (OpenHoldem6Plus) iniciadas e com os primeiros gates verdes.**
 
-- repositório criado;
-- princípio de otimização definido;
-- decisão por um fork exclusivo **OpenHoldem6Plus** registrada;
-- auditoria inicial do código-fonte legado identificou os principais pontos 52-card/SB-BB que precisam ser isolados.
+### Regras já congeladas a partir da documentação oficial atual do KKPoker
 
-Próximo gate: congelar as regras do jogo e construir, em paralelo, o primeiro núcleo matemático Short Deck e o esqueleto seguro do OpenHoldem6Plus.
+- 36 cartas, apenas 6..A;
+- mesas 6-handed;
+- sem SB/BB;
+- um ante por jogador e **dois antes totais no Dealer/Button**;
+- primeiro jogador à esquerda do Dealer age primeiro em todas as streets;
+- No-Limit;
+- Flush > Full House;
+- A6789 é a menor sequência.
+
+A especificação e as ambiguidades ainda abertas estão em `docs/GAME_SPEC_KKPOKER_V0.md`.
+
+### DeepSix Core já implementado
+
+- codec compacto de cartas `0..35`, com rejeição obrigatória de 2..5 na fronteira com o OH;
+- **81 hand classes** Short Deck cobrindo exatamente **630 combos**;
+- evaluator de 5 cartas e best-of-5 para 5/6/7 cartas;
+- A6789 e ranking KKPoker testados;
+- contrato `TableObservation` v1 com validação e fingerprints semânticos/transport;
+- oracle de equity HU por enumeração exata para validação offline;
+- suíte Python em CI.
+
+### OpenHoldem6Plus já iniciado
+
+- fork exclusivo formalizado;
+- proveniência do upstream limpa registrada em `OpenHoldem6Plus/PROVENANCE.md`;
+- baseline upstream pinado em `OpenHoldem/openholdembot@5d2bb3afec7922aab1b72aef1b23265ff6ea1b13`;
+- `ShortDeckRules.h/.cpp` criado como fronteira 36-card independente dos evaluators tradicionais;
+- `TableObservation.h` criado para o transporte OH6Plus → DeepSix;
+- teste C++ prova rejeição de ranks 2..5 e bijeção 6..A → ids 0..35;
+- o CI agora compila e executa também esse teste C++.
+
+### Validação atual
+
+- CI #1: PASS;
+- CI #2: PASS — evaluator, hand classes e observation contract;
+- CI #3: PASS — oracle de equity + compilação/teste da fronteira C++ OH6Plus.
+
+Ainda **não** consideramos o evaluator definitivamente certificado: falta a comparação independente contra outro motor Short Deck e testes/exhaustive audits adicionais. Também ainda não habilitamos qualquer ação automática no OH6Plus.
+
+### Próximos gates
+
+1. obter evidência real do cliente para min-raise, stacks, rake/rounding e estados especiais;
+2. importar o snapshot **operacionalmente autoritativo** do OpenHoldem atual, separando claramente upstream e modificações locais;
+3. construir pot accounting, side pots e legal-action engine no Core;
+4. implementar canonicalização de naipes/assentos/ordem de cartas e provar ausência de colisões estratégicas;
+5. criar o primeiro replay OH6Plus → `TableObservation` → fingerprint idêntico offline;
+6. somente então iniciar benchmarks de abstração/solver para decidir como gastar os meses de Ryzen 9.
