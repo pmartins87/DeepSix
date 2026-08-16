@@ -36,6 +36,18 @@ from .canonical import (
 )
 from .equity import EquityResult, exact_heads_up_equity
 from .evaluator import HandCategory, HandValue, evaluate_best, evaluate_five
+from .hand import (
+    HandConfig,
+    HandPhase,
+    HandPlayer,
+    HandState,
+    HandStateError,
+    apply_hand_action,
+    deal_next_board,
+    fold_winner,
+    hand_chip_total,
+    start_hand,
+)
 from .handclasses import ALL_HAND_CLASSES, combo_count, hand_class_from_cards
 from .legal import LegalActionError, LegalActionSet, legal_actions_for_hero
 from .pots import PotAccountingError, PotLayer, build_pot_layers
@@ -93,6 +105,16 @@ __all__ = [
     "HandValue",
     "evaluate_best",
     "evaluate_five",
+    "HandConfig",
+    "HandPhase",
+    "HandPlayer",
+    "HandState",
+    "HandStateError",
+    "apply_hand_action",
+    "deal_next_board",
+    "fold_winner",
+    "hand_chip_total",
+    "start_hand",
     "ALL_HAND_CLASSES",
     "combo_count",
     "hand_class_from_cards",
