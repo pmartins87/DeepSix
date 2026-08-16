@@ -1,3 +1,4 @@
+#include "../FastShortDeckEvaluator.h"
 #include "../ShortDeckEvaluator.h"
 
 #include <array>
@@ -36,34 +37,81 @@ std::vector<int> SampleSeven(Lcg64* rng) {
   return std::vector<int>(deck.begin(), deck.begin() + 7);
 }
 
+struct Measurement {
+  double seconds = 0.0;
+  double per_second = 0.0;
+  std::uint64_t checksum = 0;
+};
+
+template <typename Evaluator>
+Measurement Measure(const std::vector<std::vector<int>>& hands, Evaluator evaluator) {
+  std::uint64_t checksum = 0;
+  const auto start = std::chrono::steady_clock::now();
+  for (const auto& cards : hands) {
+    checksum += evaluator(cards);
+  }
+  const auto end = std::chrono::steady_clock::now();
+  const std::chrono::duration<double> elapsed = end - start;
+  return Measurement{
+      elapsed.count(),
+      static_cast<double>(hands.size()) / elapsed.count(),
+      checksum};
+}
+
 }  // namespace
 
 int main() {
   constexpr int kWarmup = 10000;
   constexpr int kEvaluations = 200000;
   Lcg64 rng(0xd1b54a32d192ed03ULL);
-  std::uint64_t checksum = 0;
 
+  std::vector<std::vector<int>> warmup;
+  warmup.reserve(kWarmup);
   for (int i = 0; i < kWarmup; ++i) {
-    checksum ^= deepsix::native::EncodeHandValue(
-        deepsix::native::EvaluateBest(SampleSeven(&rng)));
+    warmup.push_back(SampleSeven(&rng));
   }
-
-  const auto start = std::chrono::steady_clock::now();
+  std::vector<std::vector<int>> hands;
+  hands.reserve(kEvaluations);
   for (int i = 0; i < kEvaluations; ++i) {
-    checksum += deepsix::native::EncodeHandValue(
-        deepsix::native::EvaluateBest(SampleSeven(&rng)));
+    hands.push_back(SampleSeven(&rng));
   }
-  const auto end = std::chrono::steady_clock::now();
-  const std::chrono::duration<double> elapsed = end - start;
-  const double per_second = kEvaluations / elapsed.count();
 
-  std::cout << "native_evaluator_benchmark_v1\n";
+  deepsix::native::FastShortDeckEvaluator fast;
+  for (const auto& cards : warmup) {
+    const auto baseline = deepsix::native::EncodeHandValue(
+        deepsix::native::EvaluateBest(cards));
+    const auto lookup = fast.EvaluateBestEncoded(cards);
+    if (baseline != lookup) {
+      std::cerr << "benchmark warmup parity mismatch\n";
+      return 2;
+    }
+  }
+
+  const Measurement baseline = Measure(
+      hands,
+      [](const std::vector<int>& cards) {
+        return deepsix::native::EncodeHandValue(
+            deepsix::native::EvaluateBest(cards));
+      });
+  const Measurement lookup = Measure(
+      hands,
+      [&](const std::vector<int>& cards) {
+        return fast.EvaluateBestEncoded(cards);
+      });
+  if (baseline.checksum != lookup.checksum) {
+    std::cerr << "benchmark checksum parity mismatch\n";
+    return 3;
+  }
+
+  std::cout << "native_evaluator_benchmark_v2\n";
   std::cout << "seven_card_evaluations=" << kEvaluations << "\n";
   std::cout << std::fixed << std::setprecision(6)
-            << "elapsed_seconds=" << elapsed.count() << "\n";
+            << "baseline_seconds=" << baseline.seconds << "\n"
+            << "lookup_seconds=" << lookup.seconds << "\n";
   std::cout << std::setprecision(2)
-            << "evaluations_per_second=" << per_second << "\n";
-  std::cout << "checksum=" << checksum << "\n";
+            << "baseline_evaluations_per_second=" << baseline.per_second << "\n"
+            << "lookup_evaluations_per_second=" << lookup.per_second << "\n"
+            << "speedup=" << (lookup.per_second / baseline.per_second) << "\n";
+  std::cout << "checksum=" << baseline.checksum << "\n";
   return 0;
 }
