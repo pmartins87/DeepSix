@@ -15,9 +15,17 @@ from .cards import (
     legacy_rank_suit_to_core,
     parse_card,
 )
+from .canonical import (
+    CanonicalAction,
+    CanonicalSeat,
+    CanonicalState,
+    CanonicalizationError,
+    canonicalize_observation,
+)
 from .equity import EquityResult, exact_heads_up_equity
 from .evaluator import HandCategory, HandValue, evaluate_best, evaluate_five
 from .handclasses import ALL_HAND_CLASSES, combo_count, hand_class_from_cards
+from .pots import PotAccountingError, PotLayer, build_pot_layers
 from .state import (
     ActionEvent,
     ActionKind,
@@ -37,6 +45,11 @@ __all__ = [
     "format_card",
     "legacy_rank_suit_to_core",
     "parse_card",
+    "CanonicalAction",
+    "CanonicalSeat",
+    "CanonicalState",
+    "CanonicalizationError",
+    "canonicalize_observation",
     "EquityResult",
     "exact_heads_up_equity",
     "HandCategory",
@@ -46,6 +59,9 @@ __all__ = [
     "ALL_HAND_CLASSES",
     "combo_count",
     "hand_class_from_cards",
+    "PotAccountingError",
+    "PotLayer",
+    "build_pot_layers",
     "ActionEvent",
     "ActionKind",
     "ObservationError",
