@@ -1,242 +1,670 @@
-# DeepSix — Roadmap canônico
+# DeepSix — Roadmap canônico até uma IA completa de 6+ / Short Deck
 
 Última atualização estrutural: 16/08/2026.
 
-O roadmap mede **capacidade validada**, não quantidade de código. Um item só muda para `PASS` quando existe gate reproduzível; implementação sem evidência suficiente permanece `PARTIAL`.
+O roadmap mede **capacidade validada**, não quantidade de código. Um item só muda para `PASS` quando existe gate reproduzível. Implementação sem evidência suficiente permanece `PARTIAL`.
 
-## Fase 0 — Regras, economia e alvo real
+## Definição do objetivo final
 
-**Status: PARTIAL**
+O objetivo técnico do DeepSix é chegar a uma cadeia completa:
 
-Já congelado/testado:
+```text
+regras/economia corretas
+ -> observação confiável da mesa
+ -> reconstrução temporal completa
+ -> estado canônico
+ -> estratégia multi-street/multiway forte
+ -> policy compilada
+ -> consulta determinística de baixa latência
+ -> decisão auditável
+ -> execução fechada em ambiente permitido
+ -> replay exato e certificação longa
+```
 
-- deck Short Deck 36 cartas, 6..A;
-- Flush > Full House;
-- A6789 como menor straight;
-- estrutura ante-based e Dealer com dois antes totais no modelo atual;
-- ação clockwise a partir da esquerda do Dealer;
-- No-Limit e regra estrutural de full raise parametrizada;
-- rake percentual/cap possui motor exato configurável, sem arredondamento inventado.
+O **alvo estratégico primário passa a ser GGPoker Short Deck cash**, preservando KKPoker como referência/fallback. O Core não será reescrito: deck, evaluator, canonicalização, pot/accounting e infraestrutura de solver continuam compartilhados.
 
-Ainda depende de evidência do cliente/Hand Review:
+GGPoker e KKPoker **não são tratados como economicamente idênticos**. A regra matemática básica é muito próxima, mas a publicação atual da GGPoker usa 5% de rake e caps por stake/número de jogadores, enquanto KKPoker publica 3% e caps/isenções diferentes. Isso pode alterar estratégia ótima e precisa entrar no utility model correto.
 
-- interpretação real do threshold de rake publicado como `5BB` em uma variante sem blinds;
-- rounding/timing do rake;
-- aplicação exata da redução de rake short-handed ao 6+;
-- min-raise/reopen após sequência de short all-ins;
+A ativação de um bot/RTA em GGPoker está atualmente proibida pelos Termos e pela Security & Ecology Policy da plataforma. Portanto, o endpoint técnico de autonomia será certificado primeiro em simulador/test environment/permitted environment. A linha GGPoker permanece observação/replay/offline enquanto essa política continuar vigente.
+
+---
+
+# Fase 0 — Plataforma-alvo, regras e economia real
+
+**Status: PARTIAL — pivot para GGPoker iniciado**
+
+## Já feito
+
+- alvo original KKPoker formalizado em `GAME_SPEC_KKPOKER_V0.md`;
+- novo alvo **GGPoker-first** formalizado em `TARGET_PLATFORM_GGPOKER_V0.md`;
+- deck Short Deck de 36 cartas, ranks 6..A;
+- mesas Short Deck com até 6 jogadores;
+- Flush > Full House confirmado na documentação específica de GGPoker e KKPoker;
+- A6789 como menor straight confirmado;
+- best-five Hold'em com zero/uma/duas hole cards;
+- modelo de forced bets parameterizado;
+- modelo estrutural atual compatível com ante em todos os jogadores e 2A total no Button, mas ainda não congelado para GGPoker por evidência real do cliente;
+- No-Limit e full-raise/min-raise representáveis pelo Core;
+- rake percentual/cap possui motor exato configurável sem arredondamento inventado;
+- diferença econômica GGPoker x KKPoker já identificada e documentada;
+- jackpot/promotional deductions separados do evaluator.
+
+## Ainda falta
+
+- provar com cliente/replay real da **GGPoker** o forced-bet baseline exato;
+- provar ordem de ação preflop e pós-flop no cliente real;
+- congelar min-bet/min-raise/reopen após short all-ins;
+- congelar a tabela de stakes/buy-ins/unidades usada pelo cliente;
+- confirmar ranking completo específico de produção, inclusive Straight x Trips;
+- confirmar rake 5% e caps por quantidade de jogadores contra mãos reais;
+- verificar se existe ou não isenção preflop/small-pot na GGPoker Short Deck de produção;
+- congelar rounding e timing do rake;
+- congelar jackpot deduction de 1 ante e seu threshold/timing exato;
 - odd-chip em split pots;
-- buy-in/stack conventions por stake alvo;
-- side-pot rendering/timing;
-- sit-out/waiting-seat semantics.
+- run-it-multiple-times/cashout/insurance-like features, se disponíveis;
+- side-pot settlement;
+- sit-out/waiting-seat semantics;
+- selecionar oficialmente os primeiros stakes de treino/validação.
 
-**Gate de saída:** uma especificação versionada capaz de reproduzir hand reviews reais sem hipótese oculta.
+**Gate de saída:** uma especificação GGPoker versionada capaz de reproduzir mãos reais sem hipótese oculta.
 
-## Fase 1 — Core matemático Short Deck
+---
 
-**Status: PASS para a fundação; OPEN para extensões**
+# Fase 1 — Core matemático Short Deck
 
-Concluído:
+**Status: PASS para a fundação; OPEN para extensões de plataforma/utility**
+
+## Concluído
 
 - codec 36-card;
-- 81 starting classes / 630 combos;
+- rejeição de ranks 2..5 na fronteira legada;
+- 81 starting classes cobrindo exatamente 630 combos;
 - evaluator 5/6/7 cartas;
-- exhaustive 376.992 five-card audit;
+- A6789;
+- ranking Short Deck configurado;
+- exhaustive audit das 376.992 mãos de cinco cartas;
 - oracle independente PokerKit;
-- evaluator C++ baseline e lookup exato;
+- evaluator C++ baseline;
+- evaluator C++ lookup exato/rápido;
+- paridade Python ↔ C++;
 - equity HU exata para validação;
-- legal actions;
+- legal actions `FOLD/CHECK/CALL/RAISE_TO`;
 - betting-round state machine;
 - full-hand state machine;
-- pot/side-pot accounting;
+- pot e side-pot accounting;
 - showdown bruto exato;
-- canonicalização de naipes, hole order, flop order e chairs relativos;
-- replay/fingerprint/DecisionToken;
-- fuzzing de mãos completas.
+- `Fraction` onde odd-chip ainda não foi observado;
+- canonicalização de hole-card order;
+- canonicalização da ordem das três cartas do flop;
+- canonicalização de 24 permutações globais de naipes;
+- chairs relativos ao Dealer;
+- `ReplayFrame`;
+- fingerprints;
+- `DecisionToken`;
+- detecção de corrupção;
+- fuzzing determinístico de mãos completas.
 
-**Gate de manutenção:** qualquer mudança estratégica posterior deve continuar passando todos os invariants e oracles desta fase.
+## Ainda falta nesta fase
 
-## Fase 2 — OpenHoldem6Plus dedicado
+- profile explícito de regras/economia GGPoker depois que a Fase 0 for congelada;
+- fixtures de mãos reais GGPoker convertidas em regression tests;
+- testes completos das edge cases que só o cliente revelar.
 
-**Status: PARTIAL, boundary funcional**
+**Gate de manutenção:** toda evolução posterior deve continuar passando os invariants/oracles do Core.
 
-Concluído:
+---
+
+# Fase 2 — OpenHoldem6Plus / Adapter de plataforma
+
+**Status: PARTIAL — boundary funcional; adapter GGPoker ainda não iniciado em mesa real**
+
+## Concluído
 
 - branch operacional dedicada `myoh_private:deepsix_6plus`;
-- origem/pin do OH operacional registrados;
-- migration map para premissas 52-card/SB-BB/1326/prwin;
+- origem/pin do OpenHoldem operacional registrados;
+- migration map para premissas 52-card/SB-BB/1326/2652/prwin/dealposition;
 - `ShortDeckRules` C++ independente;
-- `TableObservation` C++ + validator + JSON canônico;
+- `TableObservation` C++;
+- validator;
+- JSON canônico;
 - `RawTableSnapshot` read-only sobre `CTableState`/`CPlayer`/`Card`;
-- schema raw v2 preservando `hero_myturnbits` e `hero_sitting_in` como evidência;
-- boundary CI próprio;
-- contratos cross-repo C++ -> JSON -> Python/Core.
+- schema raw v2;
+- `hero_myturnbits` e `hero_sitting_in` preservados como evidência, não decisão;
+- parser/espelho Python;
+- workflow CI próprio;
+- contratos cross-repo C++ -> JSON -> Python/Core;
+- observe/replay-first como princípio do runtime.
 
-Ainda falta:
+## Ainda falta
 
-- tablemap real KKPoker 6+;
-- captura/replay contínua de mãos reais;
-- eliminar/desabilitar todos os símbolos legados perigosos no build final;
-- integração do evaluator/equity Short Deck no caminho nativo que realmente precisar deles;
-- build/runtime dedicado certificado em Windows com mesa real.
+- abandonar a hipótese de tablemap KKPoker como alvo principal e construir **tablemap GGPoker Short Deck**;
+- mapear 2..6 seats e Dealer/Button;
+- reconhecer hole cards e board 6..A de forma robusta;
+- pot;
+- contribuições por jogador;
+- balances/stacks;
+- status seated/sitting-out/waiting;
+- fold/all-in states;
+- action buttons;
+- amount field/slider semantics para test harness controlado;
+- banners/animations/card squeeze/jackpot overlays que possam contaminar scraping;
+- detectar mudanças de tema/resolução/DPI;
+- importar/usar replay/hand-history quando permitido e disponível;
+- eliminar/desabilitar no build final todos os símbolos legados perigosos de 52 cards;
+- integrar evaluator/equity Short Deck no caminho nativo que realmente necessitar deles;
+- build dedicado Windows reproduzível;
+- soak test do observation boundary.
 
-**Gate de saída:** replay de sessões reais produzindo o mesmo estado estratégico offline e no runtime, sem divergência silenciosa.
+**Gate de saída:** replays/capturas GGPoker produzem o mesmo estado estratégico offline e no runtime, sem divergência silenciosa.
 
-## Fase 3 — Reconstrução temporal da mão
+---
+
+# Fase 3 — Reconstrução temporal completa da mão
 
 **Status: PARTIAL avançado**
 
-Concluído:
+## Concluído
 
 - projeção raw-chair -> strategic-seat explícita;
 - dinheiro decimal -> unidade inteira exata;
 - stable-frame gate;
 - classificação conservadora de transições;
 - `RawEvidenceTimeline`;
-- inferência local somente de `CALL` e `RAISE_TO` quando existe exatamente uma interpretação contábil;
-- recusa deliberada de inferir CHECK/FOLD por sinais insuficientes;
-- detector exato de forced-bet baseline;
-- hand epochs: um novo hand index só nasce quando reset + mudança do Dealer + baseline exato concordam;
-- ambiguity taints `complete_from_hand_start` até um novo início de mão ser novamente provado;
-- `RawObservationPipeline` compõe **raw JSON -> validação -> projection -> stable gate -> timeline** sem acrescentar semântica e já possui gate end-to-end sintético.
+- inferência local de `CALL` quando há interpretação monetária única;
+- inferência de short all-in CALL;
+- inferência de `RAISE_TO` exato quando único;
+- recusa deliberada de inventar CHECK/FOLD;
+- forced-bet baseline detector;
+- hand epochs;
+- novo hand index somente quando reset + mudança de Dealer + baseline exato concordam;
+- ambiguity contamina `complete_from_hand_start` até novo início provado;
+- `RawObservationPipeline`: raw JSON -> validação -> projection -> stable gate -> timeline;
+- gate end-to-end sintético.
 
-Ainda falta:
+## Ainda falta com dados GGPoker reais
 
-- validar timing real de `Pot()`, `_bet`, `_balance`, card backs e flags;
-- prova real de CHECK;
-- prova real de FOLD;
-- clipped forced bets / short stack no início da mão;
-- folds/all-ins simultâneos a animações do cliente;
-- confirmação robusta de hand end/payout.
+- timing real de `Pot()`;
+- timing de `_bet`;
+- timing de `_balance`;
+- card backs;
+- flags de player state;
+- prova confiável de CHECK;
+- prova confiável de FOLD;
+- clipped forced bets quando um jogador começa short;
+- múltiplas ações/animations no mesmo intervalo visual;
+- all-ins e folds durante animações;
+- side-pot formation;
+- board runout automático;
+- hand-end/payout confirmation;
+- split pot e odd-chip;
+- sit-out/join/leave transitions;
+- timeout/disconnect;
+- recuperar ou marcar corretamente frames perdidos;
+- métrica de cobertura dos estados `AMBIGUOUS`.
 
-**Gate de saída:** action history completa de replays reais com zero ação inventada e cobertura mensurada de estados `AMBIGUOUS`.
+**Gate de saída:** action history completa de replays reais, sem ação inventada e com incerteza explicitamente mensurada.
 
-## Fase 4 — Economia exata
+---
+
+# Fase 4 — Economia GGPoker exata / Utility model
 
 **Status: PARTIAL**
 
-Concluído:
+## Concluído
 
-- `RakeConfig` e `compute_exact_rake` com `Fraction`;
+- `RakeConfig`;
+- `compute_exact_rake` com `Fraction`;
 - isenção preflop configurável;
 - threshold inclusivo configurável;
-- percentual, cap e short-table multiplier explícitos;
-- `requires_rounding` preserva casos ainda não inteiros;
-- helper por múltiplos de ante sem converter `BB` implicitamente.
+- percentual/cap explícitos;
+- table-size multiplier explícito;
+- `requires_rounding`;
+- helper em múltiplos de ante sem conversão silenciosa de `BB`;
+- separação entre poker utility e promoções/jackpot/rakeback externos.
 
-Ainda falta:
+## Ainda falta
 
-- `ClientRakeRounding` validado por mãos reais;
-- distribuição de rake entre main/side pots se necessária para reproduzir payouts;
-- PVI/rakeback como camada econômica separada;
-- jackpot/fees apenas se fizerem parte do stake/ambiente alvo;
-- decidir formalmente como economia non-constant-sum entra no método de solução.
+- criar profile específico da GGPoker 5%;
+- caps por stake e quantidade de jogadores;
+- unit normalization para low/mid/high stakes publicados;
+- `ClientRakeRounding` validado;
+- timing da retirada do rake;
+- confirmar existência/ausência de no-flop/small-pot exemption;
+- jackpot 1A >~100 antes com threshold exato;
+- rake/main/side pots se necessário para reproduzir payout;
+- cashback/rewards/leaderboard apenas como camada econômica secundária;
+- decidir formalmente como utility non-constant-sum entra no método de solução;
+- definir quais métricas serão usadas em multi-player com rake.
 
-**Gate de saída:** gross pot -> rake -> net payout reproduzido contra Hand Review/client em uma bateria representativa.
+**Gate de saída:** gross pot -> deductions -> net payouts reproduzidos em bateria de mãos GGPoker.
 
-## Fase 5 — Laboratório de abstração e solver
+---
 
-**Status: IN PROGRESS — ação, estado privado e algoritmo river já possuem comparação sob oracle exato comum**
+# Fase 5 — Laboratório de ação, estado e solver
 
-Concluído:
+**Status: IN PROGRESS — infraestrutura madura; primeira bateria Ryzen real ainda pendente**
+
+## Concluído
 
 - Kuhn CFR baseline com valor/exploitability conhecidos;
 - river microgame Short Deck com ranges/evaluator reais;
-- exact best response escalável por mão privada;
-- river multi-size 1..4 sizings, ainda sem raise;
-- benchmark de custo marginal de número de sizings;
-- river one-raise: uma aposta fixa + um raise-to fixo, sem re-raise;
-- exact BR do one-raise auditada contra brute force global independente;
+- exact best response por mão privada;
+- river 1..4 initial bet sizings sem raise;
+- benchmark de custo marginal de action width;
+- river one-raise com bet fixo + raise-to;
+- exact BR one-raise auditada contra brute force global;
 - benchmark `no_raise -> one_raise`;
-- **river multi-size + one-raise** com S=1/S=2 auditado contra o one-raise anterior e brute force global;
-- exact BR por enumeração torna explícito o custo `(1+S)6^S` planos/mão;
-- **Dynamic Exact Best Response** por programação dinâmica de infosets, gated contra a BR enumerativa em S=1/S=2, política uniforme, política treinada e ranges ponderados;
-- `ScalableRiverMultiSizeOneRaiseConfig` libera **1..4 sizings + um raise** sem usar o enumerador exponencial na exploitability;
-- benchmark escalável de prefixes 1..4 sizes + raise;
-- **private-state abstraction lab**: o CFR pode agrupar combos exatos em buckets, mas a política é expandida novamente e julgada pela Dynamic Exact BR do jogo não abstraído;
-- identity bucket reproduz exatamente o CFR sem abstração sob as mesmas iterações;
-- baselines de compressão `single`, `showdown_category` e `conditional-equity quantiles`, com equity blocker-aware;
-- abstração propositalmente grosseira produz perda visível na exploitability exata não abstraída;
-- features exatas de **range equity, universal equity, nutness, blocked range weight e blocked stronger range weight**;
-- baseline determinístico `feature_borda_quantile` combinando equity/nutness/blocker sem pesos ajustados a uma fixture;
-- **uniform-reference counterfactual action values (CFVs)** por mão e por infoset, com utilidade condicionada à mão exata e continuação uniforme auditável;
-- `cfv_kmedoids_bucket_map` agrupa deterministicamente os vetores CFV e degenera para identity quando o número de buckets cobre todas as mãos;
-- gate analítico comprova que os CFVs distinguem incentivos opostos de FOLD/CALL em um spot construído;
-- **River Benchmark Battery v3** compara identity, equity-only, equity+nutness+blocker, CFV k-medoids, showdown category e single em seis texturas Short Deck;
-- a bateria v3 registra também `mapping_build_seconds` para separar custo de pré-computação de throughput do CFR;
-- **State-Abstraction Convergence v1** treina os mesmos mappings cumulativamente em múltiplos checkpoints, preservando exploitability/pot, cumulative wall-clock, nós e mapping-build cost em cada ponto;
-- o convergence analyzer calcula fronteira por checkpoint usando erro médio/pior caso, cumulative training time e nós, sem fingir que o mesmo número de iterações custa o mesmo para todas as abstrações;
-- **synchronous Regret-Matching+** implementado como segundo algoritmo mantendo a mesma árvore/chance/utility, regrets truncados em zero e average strategy com delay/peso linear ou uniforme;
-- RM+ possui gates de regrets não negativos, convergência, determinismo e resumibilidade; não existe gate artificial exigindo que ele vença o CFR baseline;
-- benchmark `CFR vs RM+` usa a mesma River Benchmark Battery e a mesma Dynamic Exact BR, registrando exploitability/pot por wall-clock em checkpoints cumulativos;
-- **Ryzen Benchmark Protocol v1** e `run_ryzen_benchmark_suite.py` consolidam agora cinco baterias: action abstraction, multi-size+raise, state final-budget, state convergence e solver-algorithm;
-- analyzer do protocolo Ryzen verifica SHA-256 antes de analisar, calcula fronteiras de Pareto apenas entre objetos comparáveis e reporta separadamente custo de construção dos mappings.
+- multi-size + one-raise S=1/S=2;
+- custo enumerativo `(1+S)6^S` explicitado;
+- Dynamic Exact Best Response por programação dinâmica;
+- DP BR gated contra enumerador em políticas uniformes/treinadas/ranges ponderados;
+- linha escalável 1..4 sizings + um raise;
+- private-state abstraction lab;
+- policy abstrata expandida e julgada no jogo original não abstraído;
+- identity bucket reproduz CFR não abstraído;
+- `single`;
+- `showdown_category`;
+- `conditional-equity quantiles` blocker-aware;
+- features exatas de range equity;
+- universal equity;
+- nutness;
+- blocked range weight;
+- blocked stronger range weight;
+- `feature_borda_quantile` equity+nutness+blocker;
+- uniform-reference CFVs por mão/infoset;
+- `cfv_kmedoids_bucket_map` determinístico;
+- gate analítico de incentivos opostos FOLD/CALL;
+- River Benchmark Battery v3 em seis texturas;
+- `mapping_build_seconds` separado do treino;
+- State-Abstraction Convergence v1;
+- checkpoints cumulativos;
+- cumulative wall-clock;
+- exact exploitability/pot por checkpoint;
+- Pareto por checkpoint;
+- synchronous Regret-Matching+;
+- regrets RM+ truncados em zero;
+- average strategy delay/peso configurável;
+- determinismo/resumibilidade;
+- benchmark CFR vs RM+ no mesmo exact oracle;
+- Ryzen Benchmark Protocol v2;
+- cinco baterias consolidadas;
+- manifest com commit/máquina/comandos/hashes;
+- analyzer com verificação SHA-256;
+- compatibilidade com manifests v1;
+- Pareto somente entre objetos comparáveis;
+- CI dos gates acima.
 
-Próximos experimentos:
+## Falta imediatamente
 
-1. executar `--profile engineering` no Ryzen 9 com a bateria v3 **e** State-Abstraction Convergence v1 para registrar a primeira fronteira real `CPU/memória/wall-clock -> erro estratégico` incluindo CFV;
-2. repetir os casos próximos da fronteira para separar ganho estratégico de ruído de wall-clock antes de promover CFR, RM+ ou qualquer família de buckets;
-3. usar as curvas para decidir se vale construir um benchmark posterior de **equal-wall-clock budgets**, em vez de checkpoints de iteração iguais com tempo apenas medido;
-4. se CFV mostrar sinal útil, testar reference policies congeladas mais informativas e/ou distâncias aprendidas, sempre julgadas pela BR exata não abstraída;
-5. decidir, a partir dos dados, se a próxima expansão de ação deve ser múltiplos raise sizes, re-raise ou maior cobertura de estados;
-6. preparar o primeiro protótipo multi-street somente quando a abstração river mostrar uma região de custo/qualidade defensável;
-7. substituir gradualmente ranges sintéticos por distribuições derivadas de estados/replays reais quando as capturas do cliente existirem.
+1. executar `python tools/run_ryzen_benchmark_suite.py --profile engineering` no Ryzen 9;
+2. analisar a primeira fronteira real erro x wall-clock x nós;
+3. repetir candidatos próximos da fronteira;
+4. escolher ou rejeitar CFV vs equity/blocker baselines;
+5. escolher CFR vs RM+ por custo real, não aparência;
+6. decidir se é necessário equal-wall-clock benchmark;
+7. decidir próxima riqueza de ação: múltiplos raises, re-raise ou mais states;
+8. substituir progressivamente ranges sintéticos por distribuições de estados reais/permitted replays.
 
-**Gate de saída:** família de abstração/algoritmo escolhida por benchmark reproduzível no Ryzen 9, sem depender de uma única fixture favorável, de um único checkpoint ou de iterações/s isoladas.
+## Experimentos antes de encerrar a fase
 
-## Fase 6 — Blueprint escalável
+- múltiplos raise sizes;
+- pelo menos uma camada de re-raise se o custo justificar;
+- abstraction sensitivity por board texture;
+- stack-to-pot sensitivity;
+- generalização fora das fixtures de treino;
+- stress de ranges skewed/weighted;
+- memória por milhão de infosets;
+- throughput multi-core real no Ryzen;
+- serialization/resume de runs longas;
+- detecção de regressão matemática entre commits.
+
+**Gate de saída:** família action/state/solver escolhida por evidência reproduzível no Ryzen 9.
+
+---
+
+# Fase 6 — Primeiro solver multi-street / Blueprint HU
 
 **Status: NOT STARTED**
 
-Objetivo:
+## Objetivo
 
-- sair dos microgames para uma política multi-street;
-- primeiro HU/subgames controlados, depois 3-way e 6-way conforme custo;
-- treino resumível e determinístico onde aplicável;
-- priorização adaptativa de estados de maior erro/EV;
-- armazenamento/lookup compatível com runtime.
+Sair do laboratório de river e resolver decisões ligadas entre preflop, flop, turn e river.
 
-**Gate de saída:** blueprint offline que supera baselines simples em suites de avaliação fora do treino e possui custo medido no Ryzen 9.
+## Falta fazer
 
-## Fase 7 — Multiway e exploração
+- public-state representation multi-street;
+- chance transitions flop/turn/river;
+- canonicalização entre streets;
+- stack/pot/to-call/min-raise features;
+- action abstraction dependente de SPR;
+- preflop limp/raise/jam tree;
+- postflop bet/check/raise/re-raise abstractions;
+- private abstraction por street;
+- transição entre bucket granularities;
+- terminal utility com economia configurada;
+- CFR/MCCFR/RM+/outro algoritmo escolhido pela Fase 5;
+- external/chance sampling se necessário;
+- checkpoint/resume;
+- deterministic seeds;
+- compression/serialization;
+- held-out subgame tests;
+- local exact/oracle subgames pequenos para auditar aproximações;
+- benchmark por CPU-hora;
+- blueprint HU inicial;
+- política baseline simples para comparação.
+
+**Gate de saída:** blueprint HU multi-street supera baselines simples fora do treino e possui erro/custo mensurado.
+
+---
+
+# Fase 7 — 3-way, 4-way, 5-way e 6-way
 
 **Status: NOT STARTED**
 
-Objetivo:
+## Objetivo
 
-- modelar o componente 3+ players sem fingir equivalência com HU;
-- definir métricas apropriadas para jogo multi-player e economia com rake;
-- adicionar população/opponent model somente depois do baseline robusto;
-- separar estratégia-base de adaptações exploratórias para preservar auditabilidade.
+Modelar o que realmente torna 6+ cash difícil: multiway com stacks, rake e action branching.
 
-**Gate de saída:** ganhos out-of-sample demonstrados sem regressão grave de robustez.
+## Falta fazer
 
-## Fase 8 — Integração e certificação
+- state/action representation para 3+ jogadores;
+- player elimination/fold order;
+- side pots no solver;
+- all-in runouts;
+- asymmetric stacks;
+- 2..6-player starting configurations;
+- position/chair symmetries válidas e somente as válidas;
+- multiplayer regret method adequado;
+- métrica de qualidade para jogo não puramente two-player zero-sum;
+- exploitability surrogate/NashConv apropriada;
+- rake/deductions no utility;
+- sparse/adaptive traversal;
+- foco de CPU em states de maior reach/EV/error;
+- progressive expansion HU -> 3-way -> 4-way -> 5/6-way;
+- curriculum de stacks e pot sizes;
+- benchmark de memory pressure;
+- shard/checkpoint layout para meses de treino;
+- avaliação cross-seat/cross-player-count.
+
+**Gate de saída:** política multiway robusta que cobre realisticamente 2..6 jogadores sem depender de equivalência falsa com HU.
+
+---
+
+# Fase 8 — Estratégia-base completa e treinamento longo no Ryzen
 
 **Status: NOT STARTED**
 
-Objetivo técnico:
+## Objetivo
 
-- `real table -> raw snapshots -> timeline -> canonical state -> policy query -> audited decision`;
-- replay determinístico da mesma decisão;
-- latência e timeout definidos;
-- fail-closed em estado desconhecido/ambíguo;
-- logging suficiente para explicar toda decisão.
+Transformar a arquitetura vencedora em um blueprint de cobertura ampla usando semanas/meses do Ryzen de forma eficiente.
 
-A linha OpenHoldem6Plus permanece **observe/replay-first** durante a construção. Nenhum gate técnico autoriza automaticamente uso em ambiente que proíba bots ou assistência em tempo real; conformidade com as regras da plataforma é uma decisão operacional separada.
+## Falta fazer
 
-## Dependências críticas atuais
+- selecionar coverage target de stacks/stakes/player counts;
+- definir budget de CPU/RAM/disk;
+- scheduler de jobs;
+- treinamento resumível após reboot/falha;
+- filas/shards;
+- deterministic/reproducible job manifests;
+- prioritized state refinement;
+- error heatmaps;
+- coverage heatmaps;
+- targeted resampling de regiões raras mas caras em EV;
+- validation holdout states;
+- periodic frozen checkpoints;
+- rollback de regressões;
+- compaction dos artefatos;
+- policy distillation somente se comprar latência/memória sem perda relevante;
+- final blueprint selection por out-of-sample suites.
 
-Existem três caminhos que avançam em paralelo:
+**Gate de saída:** blueprint amplo com força e coverage mensurados, pronto para servir decisões.
+
+---
+
+# Fase 9 — Population model e exploração separada
+
+**Status: NOT STARTED**
+
+## Objetivo
+
+Adicionar adaptação exploratória sem contaminar a estratégia-base.
+
+## Falta fazer
+
+- definir fonte de dados permitida e auditável;
+- schema de hand samples;
+- opponent identities/aliases apenas onde permitido;
+- frequência por action/state abstraído;
+- confidence intervals;
+- shrinkage para população quando amostra individual é pequena;
+- archetypes/clusters;
+- sizing tendencies;
+- fold/call/raise deviations;
+- preflop population frequencies;
+- postflop deviations;
+- exploit policy bounded por confiança;
+- fallback para blueprint quando confiança cai;
+- out-of-sample evaluation;
+- adversarial robustness;
+- limite de exploração para evitar overfit;
+- separation `base_policy` x `exploit_overlay`.
+
+**Gate de saída:** ganho out-of-sample demonstrado sem regressão grave contra adversários não modelados.
+
+---
+
+# Fase 10 — Policy compiler, armazenamento e runtime de decisão
+
+**Status: NOT STARTED**
+
+## Objetivo
+
+Transformar artefatos de treino em uma política consultável em tempo real de forma determinística.
+
+## Falta fazer
+
+- policy file format versionado;
+- metadata de rules/economy/model version;
+- state key canonical;
+- lookup exato/nearest abstraction;
+- action probability retrieval;
+- deterministic RNG por hand/decision token quando sampling for usado;
+- fallback para estado não coberto;
+- interpolation/refinement se necessário;
+- memory mapping/cache;
+- startup validation/hash;
+- corruption detection;
+- policy hot/cold loading design;
+- latência p50/p95/p99;
+- timeout behavior;
+- explain log por decisão;
+- replay byte-for-byte da mesma query;
+- policy compatibility gate com runtime version.
+
+**Gate de saída:** `canonical state -> audited action distribution` dentro do orçamento de latência, reproduzível offline.
+
+---
+
+# Fase 11 — Integração end-to-end e Shadow Mode
+
+**Status: NOT STARTED**
+
+## Objetivo
+
+Unir observação, reconstrução, policy e auditoria sem executar ações automaticamente na plataforma-alvo.
+
+## Falta fazer
+
+- `raw snapshot -> timeline -> state -> policy query -> decision`;
+- validação de seat/position/stacks/pot/action history;
+- decisão apenas quando estado completo/confiável;
+- fail-closed em `AMBIGUOUS`;
+- latência end-to-end;
+- replay da decisão contra gravações;
+- divergence detector online/offline;
+- hand-level decision trace;
+- shadow sessions extensas;
+- comparar decisão shadow com posterior solver/offline audit;
+- detectar stale policy;
+- detectar missed frames;
+- crash/restart recovery;
+- watchdog;
+- observability dashboard/logs.
+
+**Gate de saída:** milhares de decisões shadow/replay sem divergência estrutural e com todas as decisões explicáveis.
+
+---
+
+# Fase 12 — Executor autônomo em ambiente permitido
+
+**Status: NOT STARTED**
+
+## Objetivo técnico
+
+Provar que a IA consegue realmente jogar uma mão inteira em closed loop **em simulador, test client ou outra plataforma/ambiente que permita automação**.
+
+## Falta fazer
+
+- action executor abstrato;
+- fold/check/call;
+- bet/raise-to;
+- amount entry;
+- action confirmation;
+- retry policy limitada;
+- detect action accepted/rejected;
+- timeout/fail-closed;
+- zero double-click/double-action;
+- stack cap/all-in handling;
+- UI coordinate independence quando possível;
+- state-before-action fingerprint;
+- state-after-action confirmation;
+- autonomous simulator table;
+- self-play closed loop;
+- fault injection;
+- delayed frames;
+- dropped observations;
+- corrupted policy file;
+- unknown UI state;
+- long soak test;
+- exact replay of autonomous sessions.
+
+**Gate de saída:** IA joga autonomamente sessões longas de 6+ em ambiente permitido sem erro de estado/ação e com replay determinístico.
+
+---
+
+# Fase 13 — Certificação de força e prontidão operacional
+
+**Status: NOT STARTED**
+
+## Falta fazer
+
+- baseline tournaments contra políticas simples;
+- frozen-policy A/B;
+- cross-check contra solver local em subgames;
+- strategy invariance audits;
+- exploitability/NashConv proxies onde válidos;
+- bankroll/variance simulation;
+- rake-aware win-rate simulation;
+- stress por player count;
+- stress por stack depth;
+- rare-state audit;
+- latency stress;
+- memory/disk stress;
+- restart/resume certification;
+- version rollback;
+- independent replay audit;
+- reproducibility package;
+- final release manifest;
+- `READY FOR 6+ AUTONOMOUS TEST ENVIRONMENT` somente quando todos os gates anteriores passarem.
+
+**Gate de saída:** pacote técnico reproduzível que demonstra força, robustez e autonomia no ambiente permitido.
+
+---
+
+# Fase 14 — Plataforma real / Compliance gate
+
+**Status: BLOCKED para automação live na GGPoker pelas regras atuais da plataforma**
+
+GGPoker atualmente proíbe bots, AI playing, RTA, automated execution, HUD/data-mining e assistência externa em tempo real. Portanto nenhum PASS técnico das fases anteriores muda sozinho essa condição.
+
+Possíveis caminhos legítimos para liberar esta fase no futuro:
+
+- mudança oficial da política da plataforma;
+- ambiente oficial de API/bot/teste autorizado;
+- autorização expressa aplicável ao uso pretendido;
+- outra plataforma/ambiente onde automação seja permitida.
+
+Até lá, GGPoker é alvo de **regras/economia, estudo offline, replay e shadow analysis**, não de execução autônoma live.
+
+---
+
+# Onde estamos agora
 
 ```text
-A) OH6Plus / reconstrução
-   agora -> capturas reais -> congelar semantics -> replay completo
-
-B) estratégia
-   agora -> Ryzen battery v3 + convergence -> escolha action/state/solver -> multi-street prototype
-
-C) economia
-   agora -> exact rake algebra -> capturas/rounding -> utility model
+F0  Plataforma/regras/economia        PARTIAL   ██████░░░░
+F1  Core matemático                   PASS      ██████████
+F2  Adapter/OpenHoldem6Plus           PARTIAL   ██████░░░░
+F3  Reconstrução temporal             PARTIAL+  ███████░░░
+F4  Economia/utility                   PARTIAL   █████░░░░░
+F5  Lab abstração/solver              IN PROG   ███████░░░
+F6  Blueprint HU multi-street         NOT START ░░░░░░░░░░
+F7  Multiway 3-6 jogadores            NOT START ░░░░░░░░░░
+F8  Treino longo blueprint            NOT START ░░░░░░░░░░
+F9  Population/exploit                NOT START ░░░░░░░░░░
+F10 Policy compiler/runtime           NOT START ░░░░░░░░░░
+F11 End-to-end shadow                 NOT START ░░░░░░░░░░
+F12 Executor ambiente permitido       NOT START ░░░░░░░░░░
+F13 Certificação final                NOT START ░░░░░░░░░░
+F14 Live platform compliance          BLOCKED   ----------
 ```
 
-O caminho crítico imediato não é “treinar por meses”. Antes de uma run longa, precisamos provar que o estado, as ações, o evaluator e a economia que alimentam o treino correspondem ao jogo real e que a complexidade escolhida compra força suficiente por CPU-hora.
+As barras são apenas uma **visualização aproximada de maturidade dentro de cada fase**, não um percentual matemático do projeto.
+
+## Leitura correta do progresso
+
+Temos uma fundação matemática forte, uma boa parte da observação/reconstrução e um laboratório de solver já bastante sofisticado. Porém ainda **não temos o principal artefato estratégico final**: um blueprint multi-street/multiway amplo. Portanto o projeto está avançado em infraestrutura e validação, mas ainda no início da parte mais pesada de força de jogo.
+
+---
+
+# Caminhos críticos a partir de agora
+
+```text
+A) Plataforma GGPoker
+   spec v0
+    -> capturas/replays permitidos
+    -> tablemap
+    -> forced bets/min-raise/rake/payout congelados
+    -> reconstrução completa
+
+B) Estratégia
+   Ryzen engineering run
+    -> selecionar abstraction/solver
+    -> multi-street HU
+    -> 3-way
+    -> 4-6-way
+    -> treino longo
+
+C) Economia
+   GGPoker 5% + caps
+    -> client rounding
+    -> jackpot deductions
+    -> net utility
+
+D) Runtime
+   policy compiler
+    -> shadow mode
+    -> autonomous simulator/permitted environment
+    -> certification
+```
+
+## Próximo gate imediato
+
+O próximo passo com maior informação por hora continua sendo:
+
+```text
+python tools/run_ryzen_benchmark_suite.py --profile engineering
+```
+
+Em paralelo, precisamos obter **evidência real da GGPoker Short Deck** para não continuar congelando detalhes de KKPoker que talvez não pertençam ao alvo final.
+
+Não iniciaremos uma run de semanas/meses antes de escolher a abstração/solver por evidência e antes de o utility/state semantics do alvo GGPoker estarem suficientemente congelados.
