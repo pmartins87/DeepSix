@@ -23,3 +23,12 @@ jobs:
           -o /tmp/deepsix_shortdeck_rules_test
       - name: Run OH6Plus ShortDeckRules boundary test
         run: /tmp/deepsix_shortdeck_rules_test
+      - name: Compile OH6Plus TableObservation validator test
+        run: >-
+          g++ -std=c++17 -Wall -Wextra -pedantic
+          OpenHoldem6Plus/ShortDeckRules.cpp
+          OpenHoldem6Plus/TableObservationValidator.cpp
+          OpenHoldem6Plus/tests/table_observation_validator_test.cpp
+          -o /tmp/deepsix_table_observation_validator_test
+      - name: Run OH6Plus TableObservation validator test
+        run: /tmp/deepsix_table_observation_validator_test
