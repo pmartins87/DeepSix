@@ -1,17 +1,19 @@
 """Conservative bridge from OH6Plus raw snapshots toward strategic state.
 
-This module intentionally stops *before* action inference.  A single scraped
-frame is evidence, not a poker action log.  We therefore provide only:
+This module intentionally stops *before* action inference. A single scraped
+frame is evidence, not a poker action log. We therefore provide only:
 
 * explicit raw-chair -> strategic-seat mapping supplied by table configuration;
 * exact decimal-money -> integer-unit conversion under an explicit unit;
 * Short Deck card conversion at the boundary;
+* raw Hero visible-turn evidence (F/C/K/R/A bitmask + sitting-in state);
 * stable projected snapshots; and
 * conservative transition classification.
 
 No fold/call/raise, hand reset, total commitment or legal-raise history is
-invented from ambiguous deltas.  Those require successive stable frames and,
-where the client semantics are still unknown, real-table evidence.
+invented from ambiguous deltas. Visible action-button bits can prove what the
+OpenHoldem scraper considered available at a frame; they do not prove what
+poker action occurred between two frames.
 """
 
 from __future__ import annotations
@@ -118,6 +120,8 @@ class ProjectedSnapshot:
     street: Street
     dealer_seat: int
     hero_seat: int | None
+    hero_myturnbits: int
+    hero_sitting_in: bool
     board: tuple[int, ...]
     seats: tuple[ProjectedSeat, ...]
     pots: tuple[int, ...]
@@ -128,6 +132,8 @@ class ProjectedSnapshot:
             self.street,
             self.dealer_seat,
             self.hero_seat,
+            self.hero_myturnbits,
+            self.hero_sitting_in,
             self.board,
             self.seats,
             self.pots,
@@ -267,6 +273,8 @@ def project_raw_snapshot(
         street=street,
         dealer_seat=dealer_seat,
         hero_seat=hero_seat,
+        hero_myturnbits=snapshot.hero_myturnbits,
+        hero_sitting_in=snapshot.hero_sitting_in,
         board=tuple(board),
         seats=tuple(seats),
         pots=tuple(money_scale.to_units(value) for value in snapshot.pots),
@@ -319,7 +327,7 @@ def classify_raw_transition(
             )
         return RawTransition(
             RawTransitionKind.SAME_STREET_DELTA,
-            "non-board raw fields changed within the same street",
+            "non-board raw evidence changed within the same street",
         )
 
     if current_index == previous_index + 1:
