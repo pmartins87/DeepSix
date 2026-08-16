@@ -78,13 +78,21 @@ def main() -> int:
 
     python_full = observation._payload(include_transport=True)
     python_semantic = observation._payload(include_transport=False)
+    python_full_line = _canonical_json(python_full)
+    python_semantic_line = _canonical_json(python_semantic)
 
-    if full_line != _canonical_json(python_full):
+    if full_line != python_full_line:
         raise AssertionError("C++ full observation JSON differs from Python canonical bytes")
-    if semantic_line != _canonical_json(python_semantic):
+    if semantic_line != python_semantic_line:
         raise AssertionError("C++ semantic JSON differs from Python canonical bytes")
-    if semantic_payload != python_semantic:
-        raise AssertionError("C++ semantic payload differs from Python semantic payload")
+
+    # JSON arrays decode as lists while dataclasses.asdict() preserves tuples.
+    # Compare the JSON-normalized structures so tuple/list representation does
+    # not create a false semantic mismatch after exact byte parity already passed.
+    if full_payload != json.loads(python_full_line):
+        raise AssertionError("C++ full payload differs from Python JSON-normalized payload")
+    if semantic_payload != json.loads(python_semantic_line):
+        raise AssertionError("C++ semantic payload differs from Python JSON-normalized payload")
 
     if observation.observation_fingerprint() != EXPECTED_OBSERVATION_FINGERPRINT:
         raise AssertionError("cross-language observation fingerprint mismatch")
