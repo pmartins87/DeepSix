@@ -19,8 +19,14 @@ class RyzenBenchmarkSuiteTests(unittest.TestCase):
         self.assertEqual(smoke.state_fixture_limit, 1)
         self.assertIsNone(engineering.state_fixture_limit)
         self.assertIsNone(long.state_fixture_limit)
+        self.assertEqual(smoke.state_convergence_checkpoints, "1,2")
+        self.assertEqual(engineering.state_convergence_checkpoints, "100,300,1000")
+        self.assertEqual(long.state_convergence_checkpoints, "300,1000,3000,5000")
+        self.assertEqual(smoke.state_convergence_fixture_limit, 1)
+        self.assertIsNone(engineering.state_convergence_fixture_limit)
+        self.assertIsNone(long.state_convergence_fixture_limit)
 
-    def test_suite_contains_four_nonoverlapping_benchmark_outputs(self):
+    def test_suite_contains_five_nonoverlapping_benchmark_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             output_dir = Path(temporary)
             commands = _commands(PROFILES["engineering"], output_dir)
@@ -30,6 +36,7 @@ class RyzenBenchmarkSuiteTests(unittest.TestCase):
                     "action_abstraction",
                     "scalable_multisize_raise",
                     "state_abstraction_battery",
+                    "state_abstraction_convergence",
                     "solver_algorithms",
                 ),
             )
@@ -43,17 +50,27 @@ class RyzenBenchmarkSuiteTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             commands = _commands(PROFILES["smoke"], Path(temporary))
             state = next(command for command in commands if command.name == "state_abstraction_battery")
+            convergence = next(
+                command
+                for command in commands
+                if command.name == "state_abstraction_convergence"
+            )
             solver = next(command for command in commands if command.name == "solver_algorithms")
-            self.assertIn("--fixture-limit", state.argv)
-            self.assertIn("--fixture-limit", solver.argv)
-            self.assertIn("1", state.argv)
-            self.assertIn("1", solver.argv)
+            for command in (state, convergence, solver):
+                self.assertIn("--fixture-limit", command.argv)
+                self.assertIn("1", command.argv)
+            self.assertIn("--checkpoints", convergence.argv)
+            self.assertIn("1,2", convergence.argv)
 
     def test_engineering_and_long_do_not_silently_limit_fixture_batteries(self):
         with tempfile.TemporaryDirectory() as temporary:
             for profile_name in ("engineering", "long"):
                 commands = _commands(PROFILES[profile_name], Path(temporary))
-                for name in ("state_abstraction_battery", "solver_algorithms"):
+                for name in (
+                    "state_abstraction_battery",
+                    "state_abstraction_convergence",
+                    "solver_algorithms",
+                ):
                     command = next(item for item in commands if item.name == name)
                     self.assertNotIn("--fixture-limit", command.argv)
 
