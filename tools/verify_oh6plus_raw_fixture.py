@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify an OH6Plus C++ RawTableSnapshot fixture against Python/Core."""
+"""Verify an OH6Plus C++ RawTableSnapshot v2 fixture against Python/Core."""
 
 from __future__ import annotations
 
@@ -10,11 +10,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from deepsix_core.raw_snapshot import raw_snapshot_from_json  # noqa: E402
+from deepsix_core.raw_snapshot import (  # noqa: E402
+    RAW_MYTURN_CALL,
+    RAW_MYTURN_FOLD,
+    RAW_MYTURN_RAISE,
+    raw_snapshot_from_json,
+)
 
 
 EXPECTED_AUDIT_FINGERPRINT = (
-    "dcef7d020294c104067ae5804cf0c2df653ec8d32b19e324e476a1ec1329c21d"
+    "01a5c5b35baab7940a696e302ad0bee9d71c7c511f5b431c01765ede694dbe04"
 )
 
 
@@ -32,6 +37,10 @@ def main() -> int:
     if cpp_line != python_line:
         raise AssertionError("OH6Plus C++ raw JSON differs from Python canonical bytes")
 
+    expected_bits = RAW_MYTURN_FOLD | RAW_MYTURN_CALL | RAW_MYTURN_RAISE
+    if snapshot.hero_myturnbits != expected_bits or not snapshot.hero_sitting_in:
+        raise AssertionError("schema v2 Hero visible-turn evidence was not preserved")
+
     fingerprint = snapshot.audit_fingerprint()
     if fingerprint != EXPECTED_AUDIT_FINGERPRINT:
         raise AssertionError(
@@ -39,7 +48,7 @@ def main() -> int:
             f"{EXPECTED_AUDIT_FINGERPRINT}"
         )
 
-    print("OH6Plus raw C++ -> Python contract: PASS")
+    print("OH6Plus raw v2 C++ -> Python contract: PASS")
     print(f"audit_fingerprint={fingerprint}")
     return 0
 
