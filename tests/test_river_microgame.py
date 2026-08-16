@@ -1,4 +1,5 @@
 import unittest
+from itertools import combinations, product
 
 from deepsix_core.cards import parse_card
 from deepsix_core.evaluator import evaluate_best
@@ -68,6 +69,26 @@ def passive_policy(config):
     return RiverPolicy(strategies)
 
 
+def pure_policy_for_player(config, player, bits):
+    base = dict(uniform_policy(config).strategies)
+    if player == 0:
+        range_hands = config.p0_range
+        histories = ("", "xb")
+    else:
+        range_hands = config.p1_range
+        histories = ("x", "b")
+    keys = [
+        (player, hand.canonical_cards(), history)
+        for hand in range_hands
+        for history in histories
+    ]
+    if len(bits) != len(keys):
+        raise AssertionError("wrong pure-policy bit count")
+    for key, bit in zip(keys, bits):
+        base[key] = (1.0, 0.0) if bit == 0 else (0.0, 1.0)
+    return RiverPolicy(base)
+
+
 class RiverMicrogameTests(unittest.TestCase):
     def test_range_strengths_use_real_short_deck_evaluator(self):
         config = three_level_config()
@@ -99,6 +120,37 @@ class RiverMicrogameTests(unittest.TestCase):
         self.assertGreaterEqual(br0 + 1e-12, value)
         self.assertLessEqual(br1 - 1e-12, value)
         self.assertGreater(exploitability(config, policy), 0.0)
+
+    def test_scalable_best_response_matches_independent_whole_policy_bruteforce(self):
+        config = three_level_config()
+        opponent = uniform_policy(config)
+        brute0 = max(
+            expected_value(config, pure_policy_for_player(config, 0, bits), opponent)
+            for bits in product((0, 1), repeat=2 * len(config.p0_range))
+        )
+        brute1 = min(
+            expected_value(config, opponent, pure_policy_for_player(config, 1, bits))
+            for bits in product((0, 1), repeat=2 * len(config.p1_range))
+        )
+        self.assertAlmostEqual(best_response_value_player0(config, opponent), brute0, places=12)
+        self.assertAlmostEqual(best_response_value_player1(config, opponent), brute1, places=12)
+
+    def test_exact_best_response_scales_past_old_eight_hand_limit(self):
+        base = three_level_config()
+        available = [card for card in range(36) if card not in set(base.board)]
+        exact_combos = list(combinations(available, 2))
+        config = RiverMicrogameConfig(
+            board=base.board,
+            pot=base.pot,
+            bet=base.bet,
+            p0_range=tuple(RangeHand(combo) for combo in exact_combos[:9]),
+            p1_range=tuple(RangeHand(combo) for combo in exact_combos[9:18]),
+        )
+        config.validate()
+        policy = uniform_policy(config)
+        value = expected_value(config, policy, policy)
+        self.assertGreaterEqual(best_response_value_player0(config, policy) + 1e-12, value)
+        self.assertLessEqual(best_response_value_player1(config, policy) - 1e-12, value)
 
     def test_cfr_substantially_reduces_exact_exploitability(self):
         config = three_level_config()
