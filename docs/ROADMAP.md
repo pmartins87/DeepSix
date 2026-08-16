@@ -6,12 +6,23 @@ Construir a melhor estratégia de Poker Cash Game 6+ / Short Deck possível dent
 
 A meta não é resolver o jogo completo de forma exata. A meta é converter o orçamento disponível no máximo de força estratégica prática, com validação suficiente para sabermos onde a aproximação é boa, onde ainda é fraca e onde vale gastar o próximo ciclo de CPU.
 
+## Decisão arquitetural permanente
+
+DeepSix possui dois trilhos que avançam em paralelo desde o início:
+
+- **Trilho A — DeepSix Core/Trainer:** regras, evaluator, estado canônico, abstração, solver e política;
+- **Trilho B — OpenHoldem6Plus:** fork exclusivo do OpenHoldem para scraping, estado de mesa, replay e execução.
+
+A política só será integrada quando estiver pronta, mas o fork de runtime começa cedo. Isso evita descobrir no fim problemas de forced bets, posições, scraping, bet sizing ou hand reset.
+
+O OpenHoldem6Plus **não precisa preservar compatibilidade estratégica com Hold'em 52-card, AoF, Spin ou OFC**. O que for semanticamente errado para 6+ deve ser substituído ou desabilitado, não mascarado.
+
 ---
 
 ## Fase 0 — Regras e especificação do jogo
 
 ### Objetivo
-Congelar exatamente o jogo alvo antes de qualquer treino.
+Congelar exatamente o jogo alvo antes de qualquer treino pesado.
 
 ### Entregáveis
 - deck e ranks válidos;
@@ -32,14 +43,15 @@ Nenhuma ambiguidade que altere payoff, ação legal ou ranking de mão.
 
 ---
 
-## Fase 1 — Núcleo matemático Short Deck
+## Fase 1A — Núcleo matemático Short Deck
 
 ### Objetivo
 Construir um ambiente de referência independente do OpenHoldem.
 
 ### Entregáveis
-- deck de 36 cartas;
+- deck compacto de 36 cartas;
 - parser/encoder de cartas;
+- conversão explícita entre card IDs compactos do DeepSix e card IDs legados do OpenHoldem;
 - evaluator 5/6/7 cartas correto;
 - A6789;
 - ranking Short Deck configurável;
@@ -51,6 +63,36 @@ Construir um ambiente de referência independente do OpenHoldem.
 
 ### Gate
 100% dos testes estruturais e de referência passando.
+
+---
+
+## Fase 1B — Fundação do OpenHoldem6Plus
+
+### Objetivo
+Criar o fork exclusivo do OpenHoldem e separar o que pode ser reaproveitado do que é perigoso no 6+.
+
+### Política de compatibilidade
+- preservar scraping, reconhecimento de cartas, cadeiras, pot, balances, botões, mouse/teclado e infraestrutura de logs quando semanticamente corretos;
+- manter o card ID legado de 52 cartas na fronteira do scraper, se isso reduzir risco, mas **aceitar como cartas válidas apenas 6..A**;
+- converter para o card ID compacto 0..35 do DeepSix Core antes de qualquer cálculo estratégico;
+- nunca usar `Hand_EVAL_N`, `prwin`, `handrank1326`, versus tables ou range engines de 52 cartas como fonte estratégica em 6+;
+- não fingir que ante/button blind são small blind/big blind;
+- manter símbolos legados incompatíveis explicitamente desabilitados ou marcados como inválidos.
+
+### Entregáveis
+- nome/binário próprio do runtime;
+- namespace/log prefix próprio;
+- feature flag/build que só aceita 6+;
+- filtro de cartas 2–5 como erro de estado;
+- skeleton de `ShortDeckRules`/`GameRules`;
+- skeleton de forced bets nativos: ante e button blind;
+- posições relativas ao button sem depender de SB/BB;
+- captura de um `TableObservation` neutro;
+- replay offline de observações sem clicar na mesa;
+- testes que provem que engines 52-card proibidos não entram no caminho de decisão.
+
+### Gate
+O runtime consegue observar e serializar corretamente uma mão 6+ sem tomar decisão estratégica e sem consultar nenhum cálculo 52-card incompatível.
 
 ---
 
@@ -72,14 +114,48 @@ Evitar desperdiçar CPU aprendendo equivalências triviais.
 - encoder versionado;
 - round-trip tests;
 - testes adversariais de colisão;
-- medida de redução efetiva do espaço de estados.
+- medida de redução efetiva do espaço de estados;
+- representação compartilhável entre Trainer e OpenHoldem6Plus.
 
 ### Gate
 Nenhuma equivalência óbvia deixada para a rede aprender sem necessidade e nenhuma colisão entre estados estrategicamente distintos.
 
 ---
 
-## Fase 3 — Abstração de ações
+## Fase 3 — Máquina de estados e contrato runtime
+
+### Objetivo
+Garantir que engine de treino e runtime descrevam exatamente o mesmo estado do jogo.
+
+### Estado mínimo
+- hand/street;
+- button e posições relativas;
+- jogadores dealt/active/folded/all-in;
+- hole cards do Hero;
+- board;
+- stack inicial e stack atual por jogador;
+- contribuição total e da street;
+- pot principal/side pots quando aplicável;
+- valor para call;
+- min-raise-to/max-raise-to;
+- histórico completo de ações relevantes;
+- ante e button blind;
+- rake model version.
+
+### Entregáveis
+- contrato versionado `TableObservation -> CanonicalState`;
+- serialização estável para replay;
+- hash determinístico de estado;
+- detector de transições e ações observadas;
+- invalid-state reasons explícitos;
+- comparação byte/semantic-equivalent entre Trainer e runtime.
+
+### Gate
+Replay da mesma mão produz a mesma sequência de estados canônicos independentemente de ter vindo do simulador ou do OpenHoldem6Plus.
+
+---
+
+## Fase 4 — Abstração de ações
 
 ### Objetivo
 Transformar No-Limit contínuo em uma árvore tratável sem eliminar decisões essenciais.
@@ -100,14 +176,15 @@ Os tamanhos exatos serão definidos por street, SPR e estrutura real do jogo, n�
 ### Refinamento
 - detectar regiões onde a ação ótima cai frequentemente entre buckets;
 - adicionar sizings somente onde o ganho marginal justificar o aumento da árvore;
-- permitir abstração diferente por street e SPR.
+- permitir abstração diferente por street e SPR;
+- mapear ação abstrata para sizing legal real no OpenHoldem6Plus e registrar qualquer clipping.
 
 ### Gate
 Árvore pequena o suficiente para treinar profundamente e rica o suficiente para não produzir erros grosseiros de sizing.
 
 ---
 
-## Fase 4 — Baseline estratégico simples
+## Fase 5 — Baseline estratégico simples
 
 ### Objetivo
 Criar algo pequeno, reproduzível e difícil de quebrar.
@@ -127,7 +204,7 @@ Esse baseline servirá como:
 
 ---
 
-## Fase 5 — Solver/treino principal
+## Fase 6 — Solver/treino principal
 
 ### Objetivo
 Extrair o máximo do Ryzen 9.
@@ -158,7 +235,7 @@ Superar consistentemente o baseline em testes fora da amostra sem regressões es
 
 ---
 
-## Fase 6 — Escalonamento progressivo
+## Fase 7 — Escalonamento progressivo
 
 ### Ordem preferencial
 - mais profundidade no mesmo jogo antes de aumentar dimensionalidade quando isso trouxer mais EV;
@@ -171,10 +248,10 @@ O critério será sempre ganho medido por custo computacional, não elegância a
 
 ---
 
-## Fase 7 — Auditoria adversarial
+## Fase 8 — Auditoria adversarial
 
 ### Caminho auditado
-estado real → canonicalização → infoset → encoder → rede/solver → ações legais → treino → política exportada → runtime
+estado real → observação OH6+ → canonicalização → infoset → encoder → rede/solver → ações legais → treino → política exportada → runtime → clique
 
 ### Procurar explicitamente
 - vazamento de informação privada;
@@ -187,11 +264,15 @@ estado real → canonicalização → infoset → encoder → rede/solver → a�
 - terminalidade incorreta;
 - viés de sampling;
 - testes que favoreçam uma arquitetura;
-- métricas que melhorem sem ganho real de estratégia.
+- métricas que melhorem sem ganho real de estratégia;
+- uso acidental de evaluator/prwin/handrank 52-card;
+- conversão incorreta de card IDs 52-boundary ↔ 36-core;
+- confusão entre ante/button blind e SB/BB;
+- discrepância entre raise-to do solver e valor efetivamente digitado/clicado.
 
 ---
 
-## Fase 8 — Tracker e exploração
+## Fase 9 — Tracker e exploração
 
 Somente depois da estratégia-base estar estável.
 
@@ -214,24 +295,26 @@ Somente depois da estratégia-base estar estável.
 
 ---
 
-## Fase 9 — Integração com OpenHoldem
+## Fase 10 — Integração da política no OpenHoldem6Plus
 
 ### Separação de responsabilidades
-O OpenHoldem será tratado como camada de observação/ação. O conhecimento estratégico deve permanecer no motor DeepSix e não depender de símbolos tradicionais de Hold'em 52-card que sejam semanticamente incorretos para Short Deck.
+O OpenHoldem6Plus é camada de observação e execução. O conhecimento estratégico permanece no DeepSix Core/Policy Runtime.
 
-### Necessidades
-- game mode Short Deck;
-- deck/rank mapping correto;
-- evaluator/equity Short Deck;
-- posições e button blind;
-- pot e stacks;
-- ações e sizings;
-- validação de estado antes de agir;
-- replay offline de mãos coletadas.
+### Requisitos
+- inferência somente sobre estado validado;
+- action mask legal antes e depois da inferência;
+- raise-to absoluto validado contra call/min/max;
+- timeout/failure = nenhuma ação perigosa;
+- policy version e state hash em todo log de decisão;
+- replay reproduzindo exatamente a decisão;
+- nenhum símbolo tradicional 52-card participando da escolha.
+
+### Gate
+Para toda decisão de uma suíte de replay, Trainer/Policy Runtime e OpenHoldem6Plus concordam sobre estado, ações legais, ação escolhida e sizing final.
 
 ---
 
-## Fase 10 — Certificação prática
+## Fase 11 — Certificação prática
 
 ### Testes
 - self-play massivo;
@@ -242,12 +325,15 @@ O OpenHoldem será tratado como camada de observação/ação. O conhecimento es
 - regression suite;
 - stress de longas sessões;
 - medição de latência de inferência;
-- divergência entre engine e runtime.
+- divergência entre engine e runtime;
+- falhas de scraping e frames incompletos;
+- betsize input/click confirmation;
+- entradas/saídas de jogadores e mesas incompletas.
 
 ### Critério final
 Não haverá um rótulo de “jogo resolvido”.
 
-O sistema será considerado pronto quando:
+O sistema será considerado tecnicamente pronto quando:
 - regras e engine estiverem corretos;
 - runtime reproduzir a política treinada;
 - estratégia superar os baselines disponíveis;
