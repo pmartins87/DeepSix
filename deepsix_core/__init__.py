@@ -15,6 +15,17 @@ from .cards import (
     legacy_rank_suit_to_core,
     parse_card,
 )
+from .evaluator import HandCategory, HandValue, evaluate_best, evaluate_five
+from .handclasses import ALL_HAND_CLASSES, combo_count, hand_class_from_cards
+from .state import (
+    ActionEvent,
+    ActionKind,
+    ObservationError,
+    SCHEMA_VERSION,
+    SeatObservation,
+    Street,
+    TableObservation,
+)
 
 __all__ = [
     "RANKS",
@@ -25,4 +36,18 @@ __all__ = [
     "format_card",
     "legacy_rank_suit_to_core",
     "parse_card",
+    "HandCategory",
+    "HandValue",
+    "evaluate_best",
+    "evaluate_five",
+    "ALL_HAND_CLASSES",
+    "combo_count",
+    "hand_class_from_cards",
+    "ActionEvent",
+    "ActionKind",
+    "ObservationError",
+    "SCHEMA_VERSION",
+    "SeatObservation",
+    "Street",
+    "TableObservation",
 ]
