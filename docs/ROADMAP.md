@@ -163,23 +163,25 @@ Concluído:
 - gate analítico comprova que os CFVs distinguem incentivos opostos de FOLD/CALL em um spot construído;
 - **River Benchmark Battery v3** compara identity, equity-only, equity+nutness+blocker, CFV k-medoids, showdown category e single em seis texturas Short Deck;
 - a bateria v3 registra também `mapping_build_seconds` para separar custo de pré-computação de throughput do CFR;
+- **State-Abstraction Convergence v1** treina os mesmos mappings cumulativamente em múltiplos checkpoints, preservando exploitability/pot, cumulative wall-clock, nós e mapping-build cost em cada ponto;
+- o convergence analyzer calcula fronteira por checkpoint usando erro médio/pior caso, cumulative training time e nós, sem fingir que o mesmo número de iterações custa o mesmo para todas as abstrações;
 - **synchronous Regret-Matching+** implementado como segundo algoritmo mantendo a mesma árvore/chance/utility, regrets truncados em zero e average strategy com delay/peso linear ou uniforme;
 - RM+ possui gates de regrets não negativos, convergência, determinismo e resumibilidade; não existe gate artificial exigindo que ele vença o CFR baseline;
 - benchmark `CFR vs RM+` usa a mesma River Benchmark Battery e a mesma Dynamic Exact BR, registrando exploitability/pot por wall-clock em checkpoints cumulativos;
-- **Ryzen Benchmark Protocol v1** e `run_ryzen_benchmark_suite.py` consolidam action abstraction, multi-size+raise, state-abstraction battery e solver-algorithm battery em uma execução auditável com commit, máquina, parâmetros, logs e SHA-256 dos resultados;
-- analyzer do protocolo Ryzen verifica SHA-256 antes de analisar, calcula fronteiras de Pareto apenas entre objetos comparáveis e agora reporta separadamente o custo de construção dos mappings.
+- **Ryzen Benchmark Protocol v1** e `run_ryzen_benchmark_suite.py` consolidam agora cinco baterias: action abstraction, multi-size+raise, state final-budget, state convergence e solver-algorithm;
+- analyzer do protocolo Ryzen verifica SHA-256 antes de analisar, calcula fronteiras de Pareto apenas entre objetos comparáveis e reporta separadamente custo de construção dos mappings.
 
 Próximos experimentos:
 
-1. executar `--profile engineering` no Ryzen 9 com a bateria v3 e registrar a primeira fronteira real `CPU/memória/wall-clock -> erro estratégico` incluindo CFV;
+1. executar `--profile engineering` no Ryzen 9 com a bateria v3 **e** State-Abstraction Convergence v1 para registrar a primeira fronteira real `CPU/memória/wall-clock -> erro estratégico` incluindo CFV;
 2. repetir os casos próximos da fronteira para separar ganho estratégico de ruído de wall-clock antes de promover CFR, RM+ ou qualquer família de buckets;
-3. comparar convergência das abstrações em múltiplos checkpoints/wall-clock igual, evitando concluir apenas por exploitability após igual número de iterações;
+3. usar as curvas para decidir se vale construir um benchmark posterior de **equal-wall-clock budgets**, em vez de checkpoints de iteração iguais com tempo apenas medido;
 4. se CFV mostrar sinal útil, testar reference policies congeladas mais informativas e/ou distâncias aprendidas, sempre julgadas pela BR exata não abstraída;
 5. decidir, a partir dos dados, se a próxima expansão de ação deve ser múltiplos raise sizes, re-raise ou maior cobertura de estados;
 6. preparar o primeiro protótipo multi-street somente quando a abstração river mostrar uma região de custo/qualidade defensável;
 7. substituir gradualmente ranges sintéticos por distribuições derivadas de estados/replays reais quando as capturas do cliente existirem.
 
-**Gate de saída:** família de abstração/algoritmo escolhida por benchmark reproduzível no Ryzen 9, sem depender de uma única fixture favorável ou de iterações/s isoladas.
+**Gate de saída:** família de abstração/algoritmo escolhida por benchmark reproduzível no Ryzen 9, sem depender de uma única fixture favorável, de um único checkpoint ou de iterações/s isoladas.
 
 ## Fase 6 — Blueprint escalável
 
@@ -231,7 +233,7 @@ A) OH6Plus / reconstrução
    agora -> capturas reais -> congelar semantics -> replay completo
 
 B) estratégia
-   agora -> Ryzen battery v3 (incl. CFV) -> escolha action/state/solver -> multi-street prototype
+   agora -> Ryzen battery v3 + convergence -> escolha action/state/solver -> multi-street prototype
 
 C) economia
    agora -> exact rake algebra -> capturas/rounding -> utility model
