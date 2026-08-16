@@ -31,6 +31,13 @@ jobs:
           python tools/benchmark_river_multisize_raise.py
           --iterations 10
           --output /tmp/deepsix_multisize_raise_smoke.json
+      - name: Smoke-test scalable four-sizing raise benchmark
+        run: >-
+          python tools/benchmark_river_multisize_raise_scalable.py
+          --iterations 10
+          --sizes 2,4,8,12
+          --raise-to 18
+          --output /tmp/deepsix_multisize_raise_scalable_smoke.json
       - name: Compile native Short Deck evaluator digest
         run: >-
           g++ -std=c++17 -O3 -Wall -Wextra -pedantic
