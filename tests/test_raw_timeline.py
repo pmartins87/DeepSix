@@ -5,6 +5,7 @@ from deepsix_core.raw_reconstructor import ProjectedSeat, ProjectedSnapshot
 from deepsix_core.raw_timeline import (
     RawEvidenceTimeline,
     TimelineEventKind,
+    TimelineInferenceError,
     infer_unique_money_action,
 )
 from deepsix_core.state import ActionKind, Street
@@ -59,6 +60,16 @@ def snapshot(
         board=tuple(board),
         seats=normalized,
         pots=tuple(pots),
+    )
+
+
+def exact_start(*, dealer=2):
+    bets = {0: 1, 1: 1, 2: 1}
+    bets[dealer] = 2
+    return snapshot(
+        tuple(seat(i, balance=100 - bets[i], bet=bets[i]) for i in range(3)),
+        street=Street.PREFLOP,
+        dealer=dealer,
     )
 
 
@@ -222,6 +233,7 @@ class RawTimelineInferenceTests(unittest.TestCase):
         self.assertEqual(event.kind, TimelineEventKind.ACTION)
         self.assertEqual(event.action.seq, 0)
         self.assertEqual(event.action.action, ActionKind.CALL)
+        self.assertIsNone(event.action.hand_index)
 
         flop_seats = tuple(
             replace(player, current_bet=0, stack_including_current_bet=player.balance)
@@ -237,6 +249,68 @@ class RawTimelineInferenceTests(unittest.TestCase):
         self.assertEqual(event.kind, TimelineEventKind.STREET_ADVANCE)
         self.assertEqual(len(timeline.inferred_actions), 1)
 
+    def test_exact_forced_baseline_starts_complete_hand_epoch(self):
+        timeline = RawEvidenceTimeline(ante_units=1)
+        before = exact_start(dealer=2)
+        event = timeline.push(before)
+        self.assertEqual(event.kind, TimelineEventKind.HAND_START)
+        self.assertEqual(event.hand_index, 0)
+        self.assertTrue(timeline.complete_from_hand_start)
+        self.assertEqual(timeline.current_hand_index, 0)
+
+        called = replace(
+            before,
+            seats=(
+                seat(0, balance=98, bet=2),
+                before.seats[1],
+                before.seats[2],
+            ),
+        )
+        action_event = timeline.push(called)
+        self.assertEqual(action_event.kind, TimelineEventKind.ACTION)
+        self.assertEqual(action_event.action.seq, 0)
+        self.assertEqual(action_event.action.hand_index, 0)
+        self.assertTrue(timeline.complete_from_hand_start)
+
+    def test_confirmed_new_hand_resets_action_sequence_and_restores_completeness(self):
+        timeline = RawEvidenceTimeline(ante_units=1)
+        first = exact_start(dealer=2)
+        self.assertEqual(timeline.push(first).kind, TimelineEventKind.HAND_START)
+
+        # Skip directly to a river fixture. That intentionally taints the first
+        # hand, but the next exact hand-start proof must recover independently.
+        river = snapshot(
+            (seat(0), seat(1), seat(2)),
+            street=Street.RIVER,
+            board=(0, 5, 10, 15, 20),
+            dealer=2,
+        )
+        self.assertEqual(timeline.push(river).kind, TimelineEventKind.AMBIGUOUS)
+        self.assertFalse(timeline.complete_from_hand_start)
+
+        second = exact_start(dealer=0)
+        start_event = timeline.push(second)
+        self.assertEqual(start_event.kind, TimelineEventKind.HAND_START)
+        self.assertEqual(start_event.hand_index, 1)
+        self.assertTrue(timeline.complete_from_hand_start)
+
+        called = replace(
+            second,
+            seats=(
+                second.seats[0],
+                seat(1, balance=98, bet=2),
+                second.seats[2],
+            ),
+        )
+        action_event = timeline.push(called)
+        self.assertEqual(action_event.kind, TimelineEventKind.ACTION)
+        self.assertEqual(action_event.action.seq, 0)
+        self.assertEqual(action_event.action.hand_index, 1)
+
+    def test_invalid_timeline_ante_configuration_is_rejected(self):
+        with self.assertRaises(TimelineInferenceError):
+            RawEvidenceTimeline(ante_units=0)
+
     def test_ambiguous_delta_remains_ambiguous(self):
         timeline = RawEvidenceTimeline()
         before = self.base_preflop()
@@ -246,7 +320,7 @@ class RawTimelineInferenceTests(unittest.TestCase):
         self.assertEqual(event.kind, TimelineEventKind.AMBIGUOUS)
         self.assertEqual(timeline.inferred_actions, ())
 
-    def test_board_reset_is_only_hand_boundary_candidate(self):
+    def test_board_reset_is_only_hand_boundary_candidate_without_ante_config(self):
         river = snapshot(
             (seat(0), seat(1), seat(2)),
             street=Street.RIVER,
@@ -254,7 +328,11 @@ class RawTimelineInferenceTests(unittest.TestCase):
             dealer=2,
         )
         next_preflop = snapshot(
-            (seat(0, bet=1, balance=99), seat(1, bet=1, balance=99), seat(2, bet=2, balance=98)),
+            (
+                seat(0, bet=1, balance=99),
+                seat(1, bet=1, balance=99),
+                seat(2, bet=2, balance=98),
+            ),
             street=Street.PREFLOP,
             dealer=0,
         )
