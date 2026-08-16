@@ -30,15 +30,22 @@ class RiverLabFixtureTests(unittest.TestCase):
                     self.assertFalse(set(cards) & board)
                 self.assertGreater(len(cfg.compatible_deals()), 0)
 
-    def test_each_range_spans_multiple_terminal_categories(self):
+    def test_each_range_spans_multiple_terminal_strengths(self):
+        # The battery samples quantiles of the complete HandValue ordering, not
+        # categories.  On some textures (notably double-paired boards) a broad
+        # strength span can legitimately occupy only two HandCategories.  The
+        # correct invariant is therefore multiple exact strengths plus multiple
+        # categories, not an arbitrary requirement of three categories.
         for spec, cfg in benchmark_fixture_battery():
             with self.subTest(spec=spec.name):
                 for hands in (cfg.p0_range, cfg.p1_range):
-                    categories = {
-                        evaluate_best(hand.canonical_cards() + cfg.board).category
+                    values = {
+                        evaluate_best(hand.canonical_cards() + cfg.board)
                         for hand in hands
                     }
-                    self.assertGreaterEqual(len(categories), 3)
+                    categories = {value.category for value in values}
+                    self.assertGreaterEqual(len(values), 3)
+                    self.assertGreaterEqual(len(categories), 2)
 
     def test_action_parameters_are_legal_for_every_fixture(self):
         for spec, cfg in benchmark_fixture_battery():
