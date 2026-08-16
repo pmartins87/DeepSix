@@ -12,6 +12,9 @@ Profiles are intentionally explicit:
 * engineering - first useful comparative run;
 * long        - larger convergence run suitable for an overnight/long session.
 
+Manifest contract v2 adds the state-abstraction convergence battery to the four
+v1 outputs.  The analyzer remains backward-compatible with existing v1 runs.
+
 The suite does not modify strategy code or promote a winner.  It only executes
 versioned benchmark programs and packages auditable evidence for later analysis.
 """
@@ -31,6 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SUITE_VERSION = "deepsix_ryzen_benchmark_suite_v2"
 
 
 class RyzenSuiteError(RuntimeError):
@@ -289,7 +293,7 @@ def main() -> int:
 
     profile = PROFILES[args.profile]
     manifest = {
-        "suite": "deepsix_ryzen_benchmark_suite_v1",
+        "suite": SUITE_VERSION,
         "profile": args.profile,
         "started_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "repository_root": str(ROOT),
