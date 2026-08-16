@@ -4,22 +4,37 @@ This layer preserves raw scraper evidence. Money is intentionally represented as
 canonical decimal strings, not as strategic integer units and not as Python
 binary floats. Conversion to the exact configured table unit belongs to the
 state reconstructor after stake/client precision is frozen.
+
+Schema v2 also preserves OpenHoldem's already-derived visible F/C/K/R/A button
+bitmask and sitting-in state for Hero. These remain raw observation evidence;
+this module does not translate them into a poker action.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import math
 from dataclasses import asdict, dataclass
 from decimal import Decimal, InvalidOperation
 
 
-RAW_SNAPSHOT_SCHEMA_VERSION = 1
+RAW_SNAPSHOT_SCHEMA_VERSION = 2
 RAW_MAX_CHAIRS = 10
 RAW_HOLE_CARDS = 2
 RAW_BOARD_CARDS = 5
 RAW_POT_SLOTS = 10
+RAW_MYTURN_FOLD = 0x01
+RAW_MYTURN_CALL = 0x02
+RAW_MYTURN_CHECK = 0x04
+RAW_MYTURN_RAISE = 0x08
+RAW_MYTURN_ALLIN = 0x10
+RAW_MYTURN_ALLOWED_MASK = (
+    RAW_MYTURN_FOLD
+    | RAW_MYTURN_CALL
+    | RAW_MYTURN_CHECK
+    | RAW_MYTURN_RAISE
+    | RAW_MYTURN_ALLIN
+)
 
 
 class RawSnapshotError(ValueError):
@@ -92,6 +107,8 @@ class RawTableSnapshot:
     community_card_count: int
     dealer_chair: int
     hero_chair: int
+    hero_myturnbits: int
+    hero_sitting_in: bool
     pots: tuple[str, ...]
     schema_version: int
     seats: tuple[RawSeat, ...]
@@ -105,6 +122,15 @@ class RawTableSnapshot:
             raise RawSnapshotError("raw dealer chair outside 0..9")
         if self.hero_chair < -1 or self.hero_chair >= RAW_MAX_CHAIRS:
             raise RawSnapshotError("raw hero chair outside -1..9")
+        if (
+            isinstance(self.hero_myturnbits, bool)
+            or not isinstance(self.hero_myturnbits, int)
+            or self.hero_myturnbits < 0
+            or self.hero_myturnbits & ~RAW_MYTURN_ALLOWED_MASK
+        ):
+            raise RawSnapshotError("raw hero myturnbits contain unknown action bits")
+        if not isinstance(self.hero_sitting_in, bool):
+            raise RawSnapshotError("raw hero_sitting_in must be boolean")
         if self.community_card_count not in (0, 3, 4, 5):
             raise RawSnapshotError("raw board count is not a Holdem street boundary")
         if len(self.board) != RAW_BOARD_CARDS:
@@ -172,6 +198,8 @@ def raw_snapshot_from_dict(payload: dict) -> RawTableSnapshot:
             community_card_count=payload["community_card_count"],
             dealer_chair=payload["dealer_chair"],
             hero_chair=payload["hero_chair"],
+            hero_myturnbits=payload["hero_myturnbits"],
+            hero_sitting_in=payload["hero_sitting_in"],
             pots=tuple(payload["pots"]),
             schema_version=payload["schema_version"],
             seats=seats,
