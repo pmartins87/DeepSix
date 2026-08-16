@@ -2,6 +2,10 @@ import json
 import unittest
 
 from deepsix_core.raw_snapshot import (
+    RAW_MYTURN_ALLOWED_MASK,
+    RAW_MYTURN_CALL,
+    RAW_MYTURN_FOLD,
+    RAW_MYTURN_RAISE,
     RawSnapshotError,
     raw_snapshot_from_dict,
     raw_snapshot_from_json,
@@ -9,7 +13,7 @@ from deepsix_core.raw_snapshot import (
 
 
 EXPECTED_AUDIT_FINGERPRINT = (
-    "dcef7d020294c104067ae5804cf0c2df653ec8d32b19e324e476a1ec1329c21d"
+    "01a5c5b35baab7940a696e302ad0bee9d71c7c511f5b431c01765ede694dbe04"
 )
 
 
@@ -62,8 +66,10 @@ def sample_payload():
         "community_card_count": 3,
         "dealer_chair": 5,
         "hero_chair": -1,
+        "hero_myturnbits": RAW_MYTURN_FOLD | RAW_MYTURN_CALL | RAW_MYTURN_RAISE,
+        "hero_sitting_in": True,
         "pots": ["12.5"] + ["0"] * 9,
-        "schema_version": 1,
+        "schema_version": 2,
         "seats": seats,
     }
 
@@ -80,6 +86,20 @@ class RawSnapshotTests(unittest.TestCase):
     def test_observer_mode_hero_is_valid(self):
         snapshot = raw_snapshot_from_dict(sample_payload())
         self.assertEqual(snapshot.hero_chair, -1)
+
+    def test_visible_turn_evidence_is_preserved(self):
+        snapshot = raw_snapshot_from_dict(sample_payload())
+        self.assertEqual(
+            snapshot.hero_myturnbits,
+            RAW_MYTURN_FOLD | RAW_MYTURN_CALL | RAW_MYTURN_RAISE,
+        )
+        self.assertTrue(snapshot.hero_sitting_in)
+
+    def test_unknown_myturn_bit_is_rejected(self):
+        payload = sample_payload()
+        payload["hero_myturnbits"] = RAW_MYTURN_ALLOWED_MASK | 0x20
+        with self.assertRaises(RawSnapshotError):
+            raw_snapshot_from_dict(payload)
 
     def test_removed_rank_rejected(self):
         payload = sample_payload()
@@ -121,6 +141,12 @@ class RawSnapshotTests(unittest.TestCase):
     def test_board_count_boundary_rejected(self):
         payload = sample_payload()
         payload["community_card_count"] = 2
+        with self.assertRaises(RawSnapshotError):
+            raw_snapshot_from_dict(payload)
+
+    def test_old_schema_is_rejected(self):
+        payload = sample_payload()
+        payload["schema_version"] = 1
         with self.assertRaises(RawSnapshotError):
             raw_snapshot_from_dict(payload)
 
