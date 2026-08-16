@@ -135,7 +135,7 @@ Ainda falta:
 
 ## Fase 5 — Laboratório de abstração e solver
 
-**Status: IN PROGRESS — ação e abstração privada river já possuem avaliação exata no jogo original**
+**Status: IN PROGRESS — ação, estado privado e algoritmo river já possuem comparação sob oracle exato comum**
 
 Concluído:
 
@@ -156,19 +156,23 @@ Concluído:
 - identity bucket reproduz exatamente o CFR sem abstração sob as mesmas iterações;
 - baselines de compressão `single`, `showdown_category` e `conditional-equity quantiles`, com equity blocker-aware;
 - abstração propositalmente grosseira produz perda visível na exploitability exata não abstraída;
-- **River Benchmark Battery v1** com seis texturas Short Deck e ranges sintéticos gerados mecanicamente a partir de todos os 465 combos possíveis por board, evitando seleção manual favorável a uma hipótese;
-- benchmark agregado de state abstraction mede média, mediana e pior caso de exploitability/pot, além de nós, slots e throughput.
+- **River Benchmark Battery v1** com seis texturas Short Deck e ranges sintéticos gerados mecanicamente a partir dos 465 combos possíveis por board, evitando seleção manual favorável a uma hipótese;
+- benchmark agregado de state abstraction mede média, mediana e pior caso de exploitability/pot, além de nós, slots e throughput;
+- **synchronous Regret-Matching+** implementado como segundo algoritmo mantendo a mesma árvore/chance/utility, regrets truncados em zero e average strategy com delay/peso linear ou uniforme;
+- RM+ possui gates de regrets não negativos, convergência, determinismo e resumibilidade; não existe gate artificial exigindo que ele vença o CFR baseline;
+- benchmark `CFR vs RM+` usa a mesma River Benchmark Battery e a mesma Dynamic Exact BR, registrando exploitability/pot por wall-clock em checkpoints cumulativos;
+- **Ryzen Benchmark Protocol v1** e `run_ryzen_benchmark_suite.py` consolidam action abstraction, multi-size+raise, state-abstraction battery e solver-algorithm battery em uma execução auditável com commit, máquina, parâmetros, logs e SHA-256 dos resultados.
 
 Próximos experimentos:
 
-1. executar a bateria completa de action/state abstraction com budgets longos no Ryzen 9 e registrar a fronteira `CPU/memória -> erro estratégico`;
-2. adicionar features privadas mais informativas — blockers, nutness e counterfactual values — sempre contra identity e Dynamic Exact BR;
-3. comparar CFR/CFR+/MCCFR/alternativas somente onde o oracle exato ainda é barato;
+1. executar `--profile engineering` no Ryzen 9 e registrar a primeira fronteira real `CPU/memória/wall-clock -> erro estratégico` do projeto;
+2. repetir os casos próximos da fronteira para separar ganho estratégico de ruído de wall-clock antes de promover CFR ou RM+;
+3. adicionar features privadas mais informativas — blockers, nutness e counterfactual values — sempre contra identity e Dynamic Exact BR;
 4. decidir, a partir dos dados, se a próxima expansão de ação deve ser múltiplos raise sizes, re-raise ou maior cobertura de estados;
 5. preparar o primeiro protótipo multi-street somente quando a abstração river mostrar uma região de custo/qualidade defensável;
 6. substituir gradualmente ranges sintéticos por distribuições derivadas de estados/replays reais quando as capturas do cliente existirem.
 
-**Gate de saída:** família de abstração/algoritmo escolhida por benchmark reproduzível, adequada ao Ryzen 9 e sem depender de uma única fixture favorável.
+**Gate de saída:** família de abstração/algoritmo escolhida por benchmark reproduzível no Ryzen 9, sem depender de uma única fixture favorável ou de iterações/s isoladas.
 
 ## Fase 6 — Blueprint escalável
 
@@ -220,7 +224,7 @@ A) OH6Plus / reconstrução
    agora -> capturas reais -> congelar semantics -> replay completo
 
 B) estratégia
-   agora -> action/state abstraction battery -> multi-street prototypes -> blueprint
+   agora -> Ryzen benchmark suite -> escolha action/state/solver -> multi-street prototype
 
 C) economia
    agora -> exact rake algebra -> capturas/rounding -> utility model
