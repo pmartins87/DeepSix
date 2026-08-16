@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
 """Run private-state abstraction comparisons across deterministic board textures.
 
-The battery is intentionally synthetic and mechanically generated.  It exists
-to reduce single-fixture overfitting while real-game range distributions are not
-yet available.  Each trained bucket policy is expanded to exact private hands
+The battery is intentionally synthetic and mechanically generated. It exists to
+reduce single-fixture overfitting while real-game range distributions are not
+yet available. Each trained bucket policy is expanded to exact private hands
 and evaluated by the unabstracted dynamic best response.
+
+Two transparent quantile families are compared at the same requested widths:
+
+* showdown-equity-only quantiles;
+* equal-rank feature aggregation using range equity, universal equity, nutness
+  and stronger-range blocker pressure.
+
+No benchmark result automatically promotes either family.
 """
 
 from __future__ import annotations
@@ -21,6 +29,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from deepsix_trainer.river_hand_features import (  # noqa: E402
+    feature_borda_quantile_bucket_map,
+)
 from deepsix_trainer.river_lab_fixtures import benchmark_fixture_battery  # noqa: E402
 from deepsix_trainer.river_state_abstraction import (  # noqa: E402
     BucketedRiverCFR,
@@ -48,6 +59,7 @@ def mapping_family(cfg, bucket_counts: tuple[int, ...]) -> tuple[RiverBucketMap,
     return (
         identity_bucket_map(cfg),
         *(equity_quantile_bucket_map(cfg, count) for count in bucket_counts),
+        *(feature_borda_quantile_bucket_map(cfg, count) for count in bucket_counts),
         showdown_category_bucket_map(cfg),
         single_bucket_map(cfg),
     )
@@ -125,7 +137,7 @@ def main() -> int:
             cases.append(run_case(spec, cfg, mapping, args.iterations))
 
     result = {
-        "benchmark": "deepsix_river_state_abstraction_battery_v1",
+        "benchmark": "deepsix_river_state_abstraction_battery_v2",
         "machine": {
             "machine": platform.machine(),
             "platform": platform.platform(),
@@ -135,6 +147,13 @@ def main() -> int:
         "iterations_per_case": args.iterations,
         "fixture_count": len(battery),
         "bucket_counts": list(args.bucket_counts),
+        "mapping_families": [
+            "identity",
+            "conditional_equity_quantiles",
+            "equity_nutness_blocker_borda_quantiles",
+            "showdown_category",
+            "single",
+        ],
         "warning": (
             "synthetic mechanically sampled river ranges; use for comparative "
             "abstraction engineering, not as a model of live population ranges"
