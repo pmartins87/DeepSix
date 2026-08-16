@@ -129,13 +129,13 @@ Ainda falta:
 - distribuição de rake entre main/side pots se necessária para reproduzir payouts;
 - PVI/rakeback como camada econômica separada;
 - jackpot/fees apenas se fizerem parte do stake/ambiente alvo;
-- decidir formalmente como economia não-constant-sum entra no método de solução.
+- decidir formalmente como economia non-constant-sum entra no método de solução.
 
 **Gate de saída:** gross pot -> rake -> net payout reproduzido contra Hand Review/client em uma bateria representativa.
 
 ## Fase 5 — Laboratório de abstração e solver
 
-**Status: IN PROGRESS — ação river já possui oracle exato escalável**
+**Status: IN PROGRESS — ação e abstração privada river já possuem avaliação exata no jogo original**
 
 Concluído:
 
@@ -148,20 +148,27 @@ Concluído:
 - exact BR do one-raise auditada contra brute force global independente;
 - benchmark `no_raise -> one_raise`;
 - **river multi-size + one-raise** com S=1/S=2 auditado contra o one-raise anterior e brute force global;
-- exact BR por enumeração mostra explicitamente o custo `(1+S)6^S` planos/mão;
-- **Dynamic Exact Best Response** implementada por programação dinâmica de infosets e gated contra a BR enumerativa em S=1/S=2, política uniforme, política treinada e ranges ponderados;
-- linha `ScalableRiverMultiSizeOneRaiseConfig` libera **1..4 sizings + um raise** sem usar o enumerador exponencial na exploitability;
-- benchmark escalável de prefixes 1..4 sizes + raise preparado.
+- exact BR por enumeração torna explícito o custo `(1+S)6^S` planos/mão;
+- **Dynamic Exact Best Response** por programação dinâmica de infosets, gated contra a BR enumerativa em S=1/S=2, política uniforme, política treinada e ranges ponderados;
+- `ScalableRiverMultiSizeOneRaiseConfig` libera **1..4 sizings + um raise** sem usar o enumerador exponencial na exploitability;
+- benchmark escalável de prefixes 1..4 sizes + raise;
+- **private-state abstraction lab**: o CFR pode agrupar combos exatos em buckets, mas a política é expandida novamente e julgada pela Dynamic Exact BR do jogo não abstraído;
+- identity bucket reproduz exatamente o CFR sem abstração sob as mesmas iterações;
+- baselines de compressão `single`, `showdown_category` e `conditional-equity quantiles`, com equity blocker-aware;
+- abstração propositalmente grosseira produz perda visível na exploitability exata não abstraída;
+- **River Benchmark Battery v1** com seis texturas Short Deck e ranges sintéticos gerados mecanicamente a partir de todos os 465 combos possíveis por board, evitando seleção manual favorável a uma hipótese;
+- benchmark agregado de state abstraction mede média, mediana e pior caso de exploitability/pot, além de nós, slots e throughput.
 
 Próximos experimentos:
 
-1. rodar baterias longas de 1..4 sizings + raise em boards/ranges/pot/SPR variados e no Ryzen 9;
-2. testar abstração de cartas/estados mantendo a árvore de ação fixa, para medir o próximo eixo sem misturar causas;
-3. comparar CFR/CFR+/MCCFR/alternativas somente em jogos onde a Dynamic Exact BR ainda fornece oracle barato;
-4. decidir se a próxima expansão de ação deve ser **múltiplos raise sizes**, **re-raise** ou maior cobertura de estados, com base em ganho por CPU-hora;
-5. medir memória, tempo para target de exploitability e estabilidade out-of-sample, não somente iterações/s.
+1. executar a bateria completa de action/state abstraction com budgets longos no Ryzen 9 e registrar a fronteira `CPU/memória -> erro estratégico`;
+2. adicionar features privadas mais informativas — blockers, nutness e counterfactual values — sempre contra identity e Dynamic Exact BR;
+3. comparar CFR/CFR+/MCCFR/alternativas somente onde o oracle exato ainda é barato;
+4. decidir, a partir dos dados, se a próxima expansão de ação deve ser múltiplos raise sizes, re-raise ou maior cobertura de estados;
+5. preparar o primeiro protótipo multi-street somente quando a abstração river mostrar uma região de custo/qualidade defensável;
+6. substituir gradualmente ranges sintéticos por distribuições derivadas de estados/replays reais quando as capturas do cliente existirem.
 
-**Gate de saída:** família de abstração/algoritmo escolhida por benchmark reproduzível, adequada ao Ryzen 9.
+**Gate de saída:** família de abstração/algoritmo escolhida por benchmark reproduzível, adequada ao Ryzen 9 e sem depender de uma única fixture favorável.
 
 ## Fase 6 — Blueprint escalável
 
@@ -213,7 +220,7 @@ A) OH6Plus / reconstrução
    agora -> capturas reais -> congelar semantics -> replay completo
 
 B) estratégia
-   agora -> action/state abstraction benchmarks -> multi-street prototypes -> blueprint
+   agora -> action/state abstraction battery -> multi-street prototypes -> blueprint
 
 C) economia
    agora -> exact rake algebra -> capturas/rounding -> utility model
