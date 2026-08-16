@@ -16,7 +16,7 @@ Já congelado/testado:
 - estrutura ante-based e Dealer com dois antes totais no modelo atual;
 - ação clockwise a partir da esquerda do Dealer;
 - No-Limit e regra estrutural de full raise parametrizada;
-- rake percentual/cap agora possui motor exato configurável, sem arredondamento inventado.
+- rake percentual/cap possui motor exato configurável, sem arredondamento inventado.
 
 Ainda depende de evidência do cliente/Hand Review:
 
@@ -96,7 +96,8 @@ Concluído:
 - recusa deliberada de inferir CHECK/FOLD por sinais insuficientes;
 - detector exato de forced-bet baseline;
 - hand epochs: um novo hand index só nasce quando reset + mudança do Dealer + baseline exato concordam;
-- ambiguity taints `complete_from_hand_start` até um novo início de mão ser novamente provado.
+- ambiguity taints `complete_from_hand_start` até um novo início de mão ser novamente provado;
+- `RawObservationPipeline` compõe **raw JSON -> validação -> projection -> stable gate -> timeline** sem acrescentar semântica e já possui gate end-to-end sintético.
 
 Ainda falta:
 
@@ -134,7 +135,7 @@ Ainda falta:
 
 ## Fase 5 — Laboratório de abstração e solver
 
-**Status: IN PROGRESS**
+**Status: IN PROGRESS — ação river já possui oracle exato escalável**
 
 Concluído:
 
@@ -145,15 +146,20 @@ Concluído:
 - benchmark de custo marginal de número de sizings;
 - river one-raise: uma aposta fixa + um raise-to fixo, sem re-raise;
 - exact BR do one-raise auditada contra brute force global independente;
-- benchmark `no_raise -> one_raise` preparado e CI-smokeado.
+- benchmark `no_raise -> one_raise`;
+- **river multi-size + one-raise** com S=1/S=2 auditado contra o one-raise anterior e brute force global;
+- exact BR por enumeração mostra explicitamente o custo `(1+S)6^S` planos/mão;
+- **Dynamic Exact Best Response** implementada por programação dinâmica de infosets e gated contra a BR enumerativa em S=1/S=2, política uniforme, política treinada e ranges ponderados;
+- linha `ScalableRiverMultiSizeOneRaiseConfig` libera **1..4 sizings + um raise** sem usar o enumerador exponencial na exploitability;
+- benchmark escalável de prefixes 1..4 sizes + raise preparado.
 
 Próximos experimentos:
 
-1. medir `no_raise -> one_raise` em bateria maior de boards/ranges/pot/SPR;
-2. introduzir múltiplos sizings + um raise sem misturar outras dimensões;
-3. testar abstração de cartas/estados mantendo os mesmos action games;
-4. comparar CFR/CFR+/MCCFR/alternativas somente em jogos com oracle barato;
-5. medir ganho estratégico por CPU-hora e memória, não somente exploitability final.
+1. rodar baterias longas de 1..4 sizings + raise em boards/ranges/pot/SPR variados e no Ryzen 9;
+2. testar abstração de cartas/estados mantendo a árvore de ação fixa, para medir o próximo eixo sem misturar causas;
+3. comparar CFR/CFR+/MCCFR/alternativas somente em jogos onde a Dynamic Exact BR ainda fornece oracle barato;
+4. decidir se a próxima expansão de ação deve ser **múltiplos raise sizes**, **re-raise** ou maior cobertura de estados, com base em ganho por CPU-hora;
+5. medir memória, tempo para target de exploitability e estabilidade out-of-sample, não somente iterações/s.
 
 **Gate de saída:** família de abstração/algoritmo escolhida por benchmark reproduzível, adequada ao Ryzen 9.
 
@@ -207,10 +213,10 @@ A) OH6Plus / reconstrução
    agora -> capturas reais -> congelar semantics -> replay completo
 
 B) estratégia
-   agora -> river abstraction labs -> multi-street prototypes -> blueprint
+   agora -> action/state abstraction benchmarks -> multi-street prototypes -> blueprint
 
 C) economia
    agora -> exact rake algebra -> capturas/rounding -> utility model
 ```
 
-O caminho crítico imediato não é “treinar por meses”. Antes de uma run longa, precisamos provar que o estado, as ações, o evaluator e a economia que alimentam o treino correspondem ao jogo real.
+O caminho crítico imediato não é “treinar por meses”. Antes de uma run longa, precisamos provar que o estado, as ações, o evaluator e a economia que alimentam o treino correspondem ao jogo real e que a complexidade escolhida compra força suficiente por CPU-hora.
