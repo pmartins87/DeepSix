@@ -51,6 +51,18 @@ from .hand import (
 from .handclasses import ALL_HAND_CLASSES, combo_count, hand_class_from_cards
 from .legal import LegalActionError, LegalActionSet, legal_actions_for_hero
 from .pots import PotAccountingError, PotLayer, build_pot_layers
+from .raw_reconstructor import (
+    ChairLayout,
+    MoneyScale,
+    ProjectedSeat,
+    ProjectedSnapshot,
+    RawTransition,
+    RawTransitionKind,
+    ReconstructionError,
+    StableSnapshotGate,
+    classify_raw_transition,
+    project_raw_snapshot,
+)
 from .replay import (
     DecisionToken,
     REPLAY_SCHEMA_VERSION,
@@ -130,6 +142,16 @@ __all__ = [
     "PotAccountingError",
     "PotLayer",
     "build_pot_layers",
+    "ChairLayout",
+    "MoneyScale",
+    "ProjectedSeat",
+    "ProjectedSnapshot",
+    "RawTransition",
+    "RawTransitionKind",
+    "ReconstructionError",
+    "StableSnapshotGate",
+    "classify_raw_transition",
+    "project_raw_snapshot",
     "DecisionToken",
     "REPLAY_SCHEMA_VERSION",
     "ReplayFrame",
