@@ -1,6 +1,6 @@
 """Auditable Short Deck river microgame for solver architecture experiments.
 
-This is intentionally *not* the production cash-game abstraction.  It is the
+This is intentionally *not* the production cash-game abstraction. It is the
 first solver bridge that uses the real 36-card evaluator while keeping the game
 small enough to compute exact best responses.
 
@@ -15,18 +15,22 @@ Tree (single configurable bet size, no raises):
 Utilities are zero-sum from the point immediately before P0 acts on the river.
 The existing pot is treated as sunk: a showdown without betting pays +/- pot/2,
 a bet-fold pays +/- pot/2 to the bettor, and a called bet pays
-+/-(pot/2 + bet).  Ties have zero utility.
++/-(pot/2 + bet). Ties have zero utility.
 
 Ranges are finite sets of exact two-card Short Deck combos with positive
-weights.  Chance deals are the compatible ordered range pairs, normalized by
-product weights.  Showdown ordering is precomputed once per compatible deal so
-solver iterations spend time on strategy rather than re-evaluating the same
-seven cards at every terminal node.
+weights. Chance deals are the compatible ordered range pairs, normalized by
+product weights. Showdown ordering is computed once and cached per immutable
+configuration.
+
+As in the Kuhn reference trainer, a CFR iteration is synchronous: every chance
+branch is traversed under the strategy that existed at the start of the
+iteration, then all regret/average-strategy deltas are committed together.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import lru_cache
 from itertools import product
 from math import isfinite
 from typing import Mapping
@@ -106,6 +110,7 @@ class RiverMicrogameConfig:
         if not self.compatible_deals():
             raise RiverMicrogameError("ranges contain no compatible chance deal")
 
+    @lru_cache(maxsize=None)
     def compatible_deals(self) -> tuple[RiverDeal, ...]:
         board_set = set(self.board)
         raw: list[tuple[tuple[int, int], tuple[int, int], float, int]] = []
@@ -177,6 +182,12 @@ class _Node:
         return 0.5, 0.5
 
 
+@dataclass
+class _NodeDelta:
+    regret: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    strategy: list[float] = field(default_factory=lambda: [0.0, 0.0])
+
+
 def _player_to_act(history: str) -> int:
     if history == "":
         return 0
@@ -215,7 +226,7 @@ def _terminal_utility_p0(
 
 
 class RiverCFR:
-    """Deterministic full-chance vanilla CFR for a configured river microgame."""
+    """Synchronous full-chance vanilla CFR for a configured river microgame."""
 
     def __init__(self, config: RiverMicrogameConfig) -> None:
         config.validate()
@@ -230,6 +241,15 @@ class RiverCFR:
             self.nodes[key] = _Node()
         return self.nodes[key]
 
+    @staticmethod
+    def _delta(
+        deltas: dict[tuple[int, tuple[int, int], str], _NodeDelta],
+        key: tuple[int, tuple[int, int], str],
+    ) -> _NodeDelta:
+        if key not in deltas:
+            deltas[key] = _NodeDelta()
+        return deltas[key]
+
     def _cfr(
         self,
         deal: RiverDeal,
@@ -237,12 +257,14 @@ class RiverCFR:
         reach0: float,
         reach1: float,
         chance_reach: float,
+        deltas: dict[tuple[int, tuple[int, int], str], _NodeDelta],
     ) -> float:
         if history in TERMINALS:
             return _terminal_utility_p0(self.config, deal, history)
 
         player = _player_to_act(history)
         cards = deal.p0_cards if player == 0 else deal.p1_cards
+        key = (player, tuple(sorted(cards)), history)
         node = self._node(player, cards, history)
         strategy = node.current_strategy()
         actions = _actions_for_history(history)
@@ -257,6 +279,7 @@ class RiverCFR:
                     reach0 * strategy[index],
                     reach1,
                     chance_reach,
+                    deltas,
                 )
             else:
                 value = self._cfr(
@@ -265,35 +288,50 @@ class RiverCFR:
                     reach0,
                     reach1 * strategy[index],
                     chance_reach,
+                    deltas,
                 )
             action_values[index] = value
             node_value += strategy[index] * value
 
+        delta = self._delta(deltas, key)
         if player == 0:
             counterfactual_reach = chance_reach * reach1
             average_reach = chance_reach * reach0
             for index in range(2):
-                node.regret_sum[index] += counterfactual_reach * (
+                delta.regret[index] += counterfactual_reach * (
                     action_values[index] - node_value
                 )
-                node.strategy_sum[index] += average_reach * strategy[index]
+                delta.strategy[index] += average_reach * strategy[index]
         else:
             counterfactual_reach = chance_reach * reach0
             average_reach = chance_reach * reach1
             for index in range(2):
                 # P1 maximizes -u0.
-                node.regret_sum[index] += counterfactual_reach * (
+                delta.regret[index] += counterfactual_reach * (
                     node_value - action_values[index]
                 )
-                node.strategy_sum[index] += average_reach * strategy[index]
+                delta.strategy[index] += average_reach * strategy[index]
         return node_value
 
     def train(self, iterations: int) -> None:
         if isinstance(iterations, bool) or not isinstance(iterations, int) or iterations <= 0:
             raise RiverMicrogameError("iterations must be a positive integer")
         for _ in range(iterations):
+            deltas: dict[tuple[int, tuple[int, int], str], _NodeDelta] = {}
             for deal in self.deals:
-                self._cfr(deal, "", 1.0, 1.0, deal.probability)
+                self._cfr(
+                    deal,
+                    "",
+                    1.0,
+                    1.0,
+                    deal.probability,
+                    deltas,
+                )
+            for key, delta in deltas.items():
+                node = self.nodes[key]
+                for index in range(2):
+                    node.regret_sum[index] += delta.regret[index]
+                    node.strategy_sum[index] += delta.strategy[index]
             self.iterations += 1
 
     def average_policy(self) -> RiverPolicy:
@@ -341,10 +379,9 @@ def expected_value(
     policy1: RiverPolicy,
 ) -> float:
     config.validate()
-    deals = config.compatible_deals()
     return sum(
         deal.probability * _deal_value(config, policy0, policy1, deal)
-        for deal in deals
+        for deal in config.compatible_deals()
     )
 
 
