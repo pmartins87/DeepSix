@@ -177,6 +177,8 @@ def analyze_state_abstraction(payload: dict) -> dict:
             "max_exploitability_over_pot": row["max_exploitability_over_pot"],
             "mean_nodes": row["mean_nodes"],
             "mean_iterations_per_second": row["mean_iterations_per_second"],
+            "mean_mapping_build_seconds": row.get("mean_mapping_build_seconds", 0.0),
+            "max_mapping_build_seconds": row.get("max_mapping_build_seconds", 0.0),
         }
         for row in aggregate
     ]
@@ -192,9 +194,15 @@ def analyze_state_abstraction(payload: dict) -> dict:
     return {
         "methods": methods,
         "pareto_candidates": pareto,
+        "mapping_build_cost_note": (
+            "mapping build time is reported separately and is not currently a "
+            "Pareto dimension because it is a one-time/precompute cost that may "
+            "amortize differently from CFR training throughput"
+        ),
         "promotion_rule": (
-            "do not choose only by mean; inspect worst-case texture and repeat "
-            "near-frontier methods before changing blueprint abstraction"
+            "do not choose only by mean; inspect worst-case texture, mapping "
+            "construction cost and repeat near-frontier methods before changing "
+            "blueprint abstraction"
         ),
     }
 
