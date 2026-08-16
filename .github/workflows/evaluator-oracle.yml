@@ -29,4 +29,4 @@ jobs:
           python -m pip install
           'git+https://github.com/uoftcprg/pokerkit.git@5841c0afe4d6eb71ae5db0f8a6a376ee3e329afb'
       - name: Cross-check DeepSix evaluator against PokerKit
-        run: python tools/crosscheck_pokerkit.py
+        run: PYTHONPATH=. python tools/crosscheck_pokerkit.py
