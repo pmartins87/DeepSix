@@ -126,6 +126,7 @@ class BettingRoundTests(unittest.TestCase):
                 BettingPlayer(0, stack=100, committed_street=0),
                 BettingPlayer(1, stack=12, committed_street=0),
                 BettingPlayer(2, stack=20, committed_street=0),
+                BettingPlayer(3, stack=100, committed_street=0),
             ),
             initial_full_raise_increment=4,
             config=BettingConfig(
@@ -135,6 +136,7 @@ class BettingRoundTests(unittest.TestCase):
         state = apply_action(state, ActionKind.RAISE_TO, 10)  # last full increment = 10
         state = apply_action(state, ActionKind.RAISE_TO, 12)  # +2 short
         state = apply_action(state, ActionKind.RAISE_TO, 20)  # +8 short; cumulative +10
+        state = apply_action(state, ActionKind.CALL)          # seat 3 remains live
 
         self.assertEqual(state.next_actor, 0)
         legal = legal_actions(state)
