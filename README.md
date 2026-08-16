@@ -10,191 +10,190 @@ O objetivo é:
 
 > **construir a melhor estratégia que conseguirmos obter, validar e executar com segurança dentro das nossas possibilidades reais de hardware e tempo.**
 
-O orçamento de referência é **um processador Ryzen 9 trabalhando continuamente por semanas ou meses**, com possibilidade de usar armazenamento e pré-computação extensivos, mas sem assumir clusters, GPUs de datacenter ou recursos computacionais irreais para o projeto.
+O orçamento de referência é **um Ryzen 9 trabalhando continuamente por semanas ou meses**, com armazenamento e pré-computação extensivos quando úteis, mas sem assumir clusters ou hardware de datacenter.
 
-Essa filosofia é diferente da adotada em jogos muito menores, como All-in or Fold, onde uma aproximação extremamente próxima do ótimo pode ser atingível dentro do orçamento disponível. Em DeepSix, por causa da árvore multi-street, sizings, stacks e jogo multiway, aceitaremos abstração e aproximação quando elas produzirem uma estratégia melhor dentro do mesmo orçamento.
+DeepSix será julgado por força prática, robustez e ganho por CPU-hora. Uma abstração menor e profundamente treinada pode ser melhor do que uma árvore muito maior e superficial. Invariâncias matemáticas devem ser garantidas por construção para que capacidade de treino não seja desperdiçada reaprendendo equivalências triviais.
 
-## Critério de sucesso
+## Arquitetura
 
-DeepSix será julgado por **força prática e robustez**, não por perfeição teórica.
+1. **DeepSix Core** — regras, deck, evaluator, pot accounting, ação legal, canonicalização, reconstrução e utilidade.
+2. **Trainer/Solver** — CFR/regret/value/policy e demais técnicas que vencerem benchmarks reproduzíveis no orçamento do projeto.
+3. **OpenHoldem6Plus** — fork exclusivo do OpenHoldem para observar a mesa e formar estado confiável. Não precisa preservar compatibilidade estratégica com Hold'em 52-card, AoF, Spin ou OFC.
+4. **Validation/Replay** — oracles independentes, fuzzing, replays, fingerprints, contratos cross-repo e auditorias de invariância.
 
-Isso implica:
+### OpenHoldem exclusivo para 6+
 
-- nunca gastar enorme capacidade computacional perseguindo precisão irrelevante enquanto regiões importantes do jogo continuam mal treinadas;
-- preferir uma abstração bem escolhida e profundamente treinada a uma árvore quase completa e superficial;
-- usar invariâncias matemáticas e canonicalização para que capacidade de treino não seja desperdiçada aprendendo equivalências triviais;
-- concentrar amostras e refinamento onde o erro estratégico ou o impacto em EV é maior;
-- validar regras, evaluator, pot accounting e transições de estado antes de aumentar a complexidade da rede/solver;
-- manter versões simples como baselines e só aceitar arquiteturas mais pesadas quando houver ganho medido;
-- usar dados, testes adversariais e benchmarks para decidir entre alternativas, sem assumir que a arquitetura mais sofisticada necessariamente será melhor.
+Não acrescentaremos o 6+ como uma coleção de exceções no runtime dos outros projetos. O fork dedicado permite remover ou bloquear premissas perigosas de 52 cartas, substituir evaluator/equity/handrank, tratar ante e Button como conceitos nativos e evoluir scraping/state machine sem risco para as outras linhas.
 
-## Arquitetura do projeto
+Quando um conceito legado não possui a mesma semântica no 6+, ele deve ser substituído, desabilitado ou marcado como incompatível — nunca reutilizado apenas para aparentar compatibilidade.
 
-DeepSix terá quatro blocos deliberadamente separados:
+## Estado atual — 16/08/2026
 
-1. **DeepSix Core** — regras, deck, evaluator, pot accounting, ação legal, canonicalização e estado estratégico. É a fonte matemática de verdade.
-2. **Trainer/Solver** — geração de experiência, CFR/regret/value/policy e demais técnicas que forem vencendo os benchmarks no Ryzen 9.
-3. **OpenHoldem6Plus** — fork exclusivo do OpenHoldem para 6+. Não precisa preservar compatibilidade estratégica com Hold'em 52-card, AoF ou OFC. Sua função principal será observar a mesa, formar um estado confiável, consultar o DeepSix e executar a ação correta.
-4. **Validation/Replay** — testes, replays, fuzzing, auditoria de invariâncias e comparação runtime ↔ engine.
+A fundação matemática já está validada; o boundary OpenHoldem6Plus existe e possui contrato C++ ↔ Python; a reconstrução temporal conservadora já consegue provar alguns eventos sem inventar ações; a economia possui um motor de rake exato configurável; e o laboratório de solver já avançou de um sizing sem raise para múltiplos sizings e para a primeira árvore com um raise.
 
-### Decisão estrutural: OpenHoldem exclusivo para 6+
+O roadmap canônico e seus gates ficam em `docs/ROADMAP.md`.
 
-Não vamos acrescentar o 6+ como mais um conjunto de exceções dentro do OpenHoldem usado pelos outros projetos. O DeepSix terá uma **versão própria do OpenHoldem**, com nome/build/runtime próprios.
+### Regras atualmente congeladas
 
-Isso permite:
+- deck com **36 cartas**, apenas 6..A;
+- mesas até 6-handed;
+- estrutura ante-based, sem modelar SB/BB como forced bets estratégicos;
+- modelo atual de forced bets: A nos demais dealt players e **2A totais no Dealer/Button**;
+- primeiro jogador à esquerda do Dealer age primeiro em todas as streets;
+- No-Limit;
+- Flush > Full House;
+- A6789 é a menor sequência;
+- full raise usa incremento pelo menos igual ao bet/raise anterior da street no modelo estrutural.
 
-- remover ou desabilitar premissas de Hold'em 52-card que seriam perigosas no Short Deck;
-- substituir evaluator/equity/handrank sem medo de quebrar DeepKK, SpinCore ou outros runtimes;
-- tratar ante e button blind como conceitos nativos, em vez de fingir que são SB/BB;
-- criar símbolos e logs específicos de Short Deck;
-- evoluir a máquina de estados e o autoplayer de acordo com as necessidades reais do DeepSix;
-- manter testes de regressão independentes.
+A documentação pública de rake do 6+ usa a expressão `5BB` para o limiar de small pot apesar da variante ser ante-based. **DeepSix não converte isso silenciosamente para 10 antes.** A interpretação real permanece aberta até Hand Review/captura do cliente comprovar a cobrança. O mesmo princípio vale para rounding/timing e para eventual redução short-handed.
 
-O fork do OpenHoldem começa **em paralelo** ao núcleo matemático. A integração da política treinada ocorre mais tarde, mas não deixaremos para descobrir problemas de scraping, posições, forced bets ou bet sizing somente no fim do projeto.
+A especificação completa e ambiguidades estão em `docs/GAME_SPEC_KKPOKER_V0.md`.
 
-## Escopo inicial
+## Core matemático validado
 
-1. Formalizar exatamente as regras do 6+ alvo.
-2. Implementar e testar um motor Short Deck de 36 cartas.
-3. Implementar evaluator correto, incluindo a ordenação de mãos da variante e a sequência A-6-7-8-9 quando aplicável.
-4. Criar representação canônica de cartas, boards, suits, posições, stacks, potes e histórico de ações.
-5. Iniciar o fork **OpenHoldem6Plus**, preservando o que é útil do scraper/autoplayer e isolando tudo que assume 52 cartas, SB/BB ou rankings tradicionais.
-6. Construir um ambiente de jogo determinístico e auditável.
-7. Definir uma abstração de ações compatível com o orçamento computacional.
-8. Produzir uma estratégia-base treinável em um Ryzen 9.
-9. Medir estabilidade, qualidade e ganho marginal por custo de treino.
-10. Refinar adaptativamente regiões de maior impacto e integrar somente políticas validadas ao runtime.
+Já existem:
+
+- codec compacto 0..35 e rejeição obrigatória de ranks 2..5 na fronteira legada;
+- **81 starting-hand classes cobrindo exatamente 630 combos**;
+- evaluator de 5 cartas e best-of-5 para 5/6/7 cartas;
+- A6789 e ranking Short Deck testados;
+- enumeração de **todas as 376.992 mãos de cinco cartas** contra distribuição analítica;
+- oracle externo PokerKit pinado;
+- equity HU exata para validação;
+- pot e side-pot accounting;
+- legal-action boundary `FOLD/CHECK/CALL/RAISE_TO`;
+- betting-round state machine No-Limit com full raises e short all-ins;
+- full-hand state machine `forced bets -> preflop -> flop -> turn -> river -> showdown/fold`;
+- runout automático quando não há mais decisão de betting;
+- showdown bruto exato, mantendo splits como `Fraction` até odd-chip ser observado;
+- canonicalização de hole-card order, flop order, 24 permutações globais de naipes e chairs relativos ao Dealer;
+- `ReplayFrame`, `DecisionToken`, fingerprints e detecção de corrupção;
+- fuzzing determinístico de mãos completas.
+
+## Evaluator nativo
+
+Há dois caminhos C++ gated:
+
+- `ShortDeckEvaluator`, baseline claro/auditável;
+- `FastShortDeckEvaluator`, lookup exato de todas as combinações de cinco cartas.
+
+Os gates exigem paridade do baseline C++ contra Python em todas as 376.992 mãos de cinco cartas e amostras determinísticas de seis/sete cartas; o lookup é comparado contra o baseline em todas as cinco-cartas + 10.000 seis-cartas + 20.000 sete-cartas.
+
+O benchmark de CI é apenas informativo. No run #102 o lookup ficou em ~1,39 milhão de avaliações de sete cartas/s contra ~484 mil do baseline (~2,88x). Esse número **não é extrapolado para o Ryzen 9**; o benchmark versionado deverá ser executado nele antes de investir em estruturas ainda maiores.
+
+## OpenHoldem6Plus
+
+O repositório operacional `pmartins87/myoh_private` possui a branch dedicada `deepsix_6plus`, derivada do baseline operacional registrado no projeto.
+
+Já estão implementados/gated:
+
+- migration map de dependências 52-card/1326/2652/prwin/SB-BB/dealposition;
+- `ShortDeckRules` C++ independente;
+- `TableObservation` + validator + JSON canônico;
+- contrato C++ -> Python/Core com igualdade byte-a-byte/fingerprints;
+- `RawTableSnapshot` read-only sobre `CTableState`/`CPlayer`/`Card`;
+- **schema raw v2**, preservando `hero_myturnbits` (F/C/K/R/A visíveis) e `hero_sitting_in` como evidência bruta, não como decisão;
+- parser/espelho Python do snapshot bruto;
+- workflow `DeepSix 6+ boundary CI` restrito à branch dedicada;
+- contrato cross-repo que compila o boundary C++ pinado e exige compatibilidade exata no Core.
+
+**Nenhuma ação automática está habilitada no OpenHoldem6Plus.** A linha permanece deliberadamente `observe/replay-first` durante a construção e validação.
+
+## Reconstrução temporal conservadora
+
+A cadeia atual é:
+
+```text
+RawTableSnapshot
+  -> ProjectedSnapshot
+  -> StableSnapshotGate
+  -> RawEvidenceTimeline
+```
+
+A timeline só infere uma ação quando o delta observado possui interpretação monetária única sob guards estritos.
+
+Atualmente ela consegue inferir:
+
+- `CALL` exato;
+- `CALL` all-in curto exato;
+- `RAISE_TO` exato, incluindo opening bet postflop sob a semântica do Core.
+
+Ela **não** inventa `CHECK` pelo desaparecimento de botões nem `FOLD` por mera mudança de flags. Estados insuficientes permanecem `AMBIGUOUS`.
+
+Também existe prova estrita de início de mão: um hand epoch só é estabelecido quando o snapshot mostra o baseline exato de forced bets; entre mãos, a confirmação exige regressão para preflop + mudança de Dealer + novo baseline exato. Uma ambiguidade invalida `complete_from_hand_start` até um novo início confiável ser provado.
+
+Detalhes: `docs/RAW_EVIDENCE_TIMELINE_V1.md` e `docs/RAW_HAND_START_EVIDENCE_V1.md`.
+
+## Economia / rake
+
+`deepsix_core.rake` representa percentual e rake como `Fraction` e separa explicitamente:
+
+1. elegibilidade/isenções;
+2. percentual/cap exatos;
+3. **rounding do cliente, ainda não inventado**.
+
+O engine suporta threshold configurável, cap em unidades exatas e multiplicador short-handed somente quando explicitamente habilitado. O helper Short Deck aceita múltiplos de ante fornecidos pelo chamador e permite deixar o threshold sem resolução (`None`).
+
+Detalhes: `docs/RAKE_MODEL_V1.md`.
+
+Rake variável não será simplesmente inserido no microgame HU e chamado de exploitability zero-sum: quando a retirada depende da trajetória/pot, a soma das utilidades varia. A metodologia econômica será tratada explicitamente antes do blueprint principal.
+
+## Laboratório de solver e abstração
+
+A progressão atual foi deliberadamente incremental:
+
+- Kuhn CFR com valor/exploitability conhecidos;
+- river microgame Short Deck com ranges e evaluator reais;
+- exact best response escalável por mão privada;
+- river multi-size com 1..4 sizings iniciais, sem raises;
+- benchmark de custo marginal de número de sizings;
+- **river one-raise**, com um bet fixo + um raise-to fixo e sem re-raise;
+- exact best response do one-raise auditada contra brute force global independente em ranges pequenos;
+- benchmark `no_raise -> one_raise` para medir aumento estrutural e convergência.
+
+No smoke do run #102, adicionar um raise elevou a fixture de 12 para 18 nós (1,5x) e de 24 para 42 action slots (1,75x). O throughput observado em apenas 10 iterações não é usado como conclusão de performance; uma bateria longa e representativa é necessária.
+
+Detalhes: `docs/RIVER_MULTISIZE_V1.md` e `docs/RIVER_ONE_RAISE_V1.md`.
+
+## Validação atual
+
+O último gate de código consolidado, **DeepSix CI #102**, passou com:
+
+- **167 testes Python/Core: PASS**;
+- exhaustive 376.992 five-card audit: PASS;
+- baseline C++ ↔ Python evaluator: PASS;
+- fast lookup C++ ↔ baseline: PASS;
+- ShortDeckRules C++: PASS;
+- TableObservation validator/JSON C++: PASS;
+- C++ -> Python canonical observation/fingerprints: PASS;
+- raw reconstruction/timeline/hand-start/rake: PASS;
+- river microgame/multi-size/one-raise e exact BR gates: PASS;
+- os dois benchmarks de abstração em smoke CI: PASS.
+
+O CI não é usado para transformar números de runner compartilhado em estimativa de Ryzen 9; ele prova corretude/regressão e apenas reporta performance informativa.
+
+## Próximos gates
+
+1. **Capturas reais KKPoker 6+** para congelar chair layout, timing de `Pot/_bet/_balance`, CHECK/FOLD, hand boundary, short-stack forced bets, min-raise/reopen, side pots, sit-out, rake rounding e payouts.
+2. Executar os benchmarks versionados em **Ryzen 9** e medir custo marginal com iterações suficientemente longas.
+3. Evoluir o laboratório para **múltiplos sizings + um raise**, aumentando apenas uma dimensão de cada vez.
+4. Definir formalmente a metodologia de utility/solução quando houver rake e, depois, jogo multiway.
+5. Só então escalar para protótipos multi-street/blueprint, evitando gastar meses de CPU sobre estado, economia ou abstração errados.
 
 ## Filosofia de engenharia
 
 ### Correção antes de escala
 
-Uma run de meses sobre uma representação errada é pior que uma run curta sobre um modelo correto. Deck, ranking, payouts, rake, stacks, ação legal, terminalidade e canonicalização devem possuir testes independentes antes de treino pesado.
+Uma run de meses sobre uma representação errada é pior que uma run curta sobre um modelo correto.
 
 ### Eficiência representa força
 
-Eliminar redundâncias não serve apenas para acelerar o mesmo treino. Toda capacidade liberada deve, quando útil, ser convertida em **mais conhecimento estratégico real**: mais estados, melhores abstrações, maior capacidade do modelo, mais iterações ou refinamento dirigido.
-
-### Melhor possível, não perfeito
-
-O projeto não terá um gate artificial de “GTO completo”. O roadmap deverá evoluir enquanto houver uma forma mensurável de converter o orçamento disponível em uma estratégia melhor.
+Capacidade economizada deve ser convertida, quando útil, em mais conhecimento estratégico: mais estados, melhores abstrações, mais iterações, maior capacidade ou refinamento dirigido.
 
 ### Evidência acima de intuição
 
-Toda mudança relevante de encoder, arquitetura, loss, sampling, abstraction ou política deverá ser comparada contra baselines em testes reproduzíveis. Uma V2 conceitualmente mais elegante não será promovida apenas por parecer superior; ao mesmo tempo, resultados surpreendentes serão auditados para descartar viés de teste, bug ou desperdício de capacidade.
+Arquiteturas e abstrações só são promovidas por testes reproduzíveis. Uma V2 mais elegante não vence por parecer superior; um resultado surpreendente também não é aceito sem auditoria de viés, bug ou desperdício.
 
-### Sem compatibilidade falsa
+### Melhor possível, não perfeito
 
-Quando um conceito legado do OpenHoldem não possuir a mesma semântica em 6+, ele não será reaproveitado apenas para evitar mudanças. Compatibilidade aparente é mais perigosa do que uma quebra explícita. Símbolos inválidos devem ser substituídos, desabilitados ou marcados como incompatíveis.
-
-## Estado atual — 16/08/2026
-
-**Fase 0 parcialmente congelada; Fases 1A (Core), 1B (OpenHoldem6Plus) e a fundação da Fase 3 avançaram até máquina de mão completa, evaluator nativo validado e primeira camada conservadora de reconstrução do estado bruto. Os principais gates estruturais atuais estão verdes.**
-
-### Regras já congeladas a partir da documentação oficial atual do KKPoker
-
-- 36 cartas, apenas 6..A;
-- mesas 6-handed;
-- sem SB/BB;
-- um ante por jogador e **dois antes totais no Dealer/Button**;
-- primeiro jogador à esquerda do Dealer age primeiro em todas as streets;
-- No-Limit;
-- Flush > Full House;
-- A6789 é a menor sequência;
-- minimum bet publicado = tamanho do button blind;
-- full raise deve ter incremento pelo menos igual ao bet/raise anterior da street;
-- no-rake small-pot threshold publicado para 6+ = **10 antes** (equivalente ao `5BB` usado em outra página do site).
-
-A especificação, a reconciliação das páginas oficiais e as ambiguidades ainda abertas estão em `docs/GAME_SPEC_KKPOKER_V0.md`.
-
-### DeepSix Core já implementado
-
-- codec compacto de cartas `0..35`, com rejeição obrigatória de 2..5 na fronteira com o OH;
-- **81 hand classes** Short Deck cobrindo exatamente **630 combos**;
-- evaluator de 5 cartas e best-of-5 para 5/6/7 cartas;
-- A6789 e ranking KKPoker testados;
-- oracle de equity HU por enumeração exata para validação offline;
-- regras estruturais nativas de ante/Dealer e ordem de ação;
-- `TableObservation` v1 com validação e fingerprints semântico/transport;
-- canonicalização exata de ordem das hole cards, ordem interna do flop, 24 permutações globais de naipes e labels físicos de chairs relativos ao Dealer;
-- pot/side-pot layer accounting com conservação exata de contribuições;
-- legal-action boundary com `FOLD/CHECK/CALL/RAISE_TO` e intervalo de raise-to explícito;
-- `ReplayFrame` + `DecisionToken` para detectar corrupção e invalidar decisões quando o estado muda;
-- **betting-round state machine No-Limit determinística**, com full raises, short all-ins, ordem de ação, fechamento de dry side pots, terminalidade por fold e conservação de fichas;
-- comportamento de reopen após short all-ins mantido explicitamente parametrizado (`NEVER`, `ANY_INCREASE`, `CUMULATIVE_FULL_RAISE`) até evidência real do cliente;
-- **máquina de mão completa** `forced bets → preflop → flop → turn → river → showdown/fold terminal`, com board chance events explícitos, chairs físicos esparsos, stacks/committed-total persistentes e sequência global de ações;
-- runout automático sem betting quando todos os jogadores remanescentes estão all-in;
-- resolvedor de showdown bruto que combina evaluator + main/side pots e conserva exatamente o pot;
-- empates de pot são mantidos como `Fraction` exata, sem inventar regra de odd-chip ainda não observada no cliente;
-- fuzzing determinístico de mãos completas cobrindo contagens de jogadores, chairs, stacks, folds, calls, checks, raises, all-ins e streets, sempre exigindo conservação de fichas e terminalidade;
-- primeira camada `RawTableSnapshot → ProjectedSnapshot`, com **mapeamento explícito de raw chairs**, conversão decimal→unidade inteira exata e rejeição de quantização não exata;
-- `StableSnapshotGate` exige repetição semântica de frames antes de liberar estado estável;
-- classificador de transição diferencia `UNCHANGED`, `SAME_STREET_DELTA`, `FORWARD_STREET`, `HAND_BOUNDARY_CANDIDATE` e `AMBIGUOUS` **sem inventar fold/call/raise** a partir de um delta de tela.
-
-A semântica e os gates da betting machine estão registrados em `docs/BETTING_STATE_MACHINE_V1.md`. O plano de coleta do cliente real está em `docs/REAL_CLIENT_CAPTURE_PLAN.md`.
-
-### Validação matemática e evaluator nativo
-
-O evaluator Python de referência já passou por múltiplas camadas independentes:
-
-- testes unitários de regras especiais;
-- enumeração de **todas as 376.992 mãos de cinco cartas** do deck de 36 cartas, com distribuição analítica exata por categoria;
-- vetores documentados do PokerKit;
-- oracle externo pinado em `uoftcprg/pokerkit@5841c0afe4d6eb71ae5db0f8a6a376ee3e329afb`;
-- comparação determinística contra o PokerKit em **10.000 pares de mãos de cinco cartas + 2.000 showdowns de sete cartas**, sem divergência de ordering.
-
-O caminho nativo C++ também está implementado e gated:
-
-- baseline `ShortDeckEvaluator` comparado contra o Python por digest de **todas as 376.992 mãos de cinco cartas + 4.000 mãos de seis cartas + 6.000 mãos de sete cartas: PASS**;
-- `FastShortDeckEvaluator` possui lookup exato das 376.992 combinações de cinco cartas e passou contra o baseline em **todas as cinco-cartas + 10.000 seis-cartas + 20.000 sete-cartas: PASS**;
-- benchmark informativo do runner CI, sobre as mesmas 200.000 mãos de sete cartas: baseline **475.651,58 eval/s**, lookup **1.412.406,71 eval/s**, ganho observado **2,97×**;
-- não existe threshold de performance no CI e o número do runner não será extrapolado para o Ryzen 9.
-
-A implementação e a política de promoção estão documentadas em `docs/NATIVE_EVALUATOR_V1.md`.
-
-### OpenHoldem6Plus já iniciado
-
-- fork exclusivo formalizado;
-- proveniência do upstream limpa registrada em `OpenHoldem6Plus/PROVENANCE.md`;
-- baseline upstream pinado em `OpenHoldem/openholdembot@5d2bb3afec7922aab1b72aef1b23265ff6ea1b13`;
-- repositório operacional **build-complete** confirmado em `pmartins87/myoh_private`, branch `oh_pre_release_v15`, pinado em `3aa8a28944e3759fecc9323fb9f7361d54d4c9af`;
-- branch dedicada **`deepsix_6plus`** criada nesse repositório exatamente a partir do pin operacional, isolando o desenvolvimento 6+ da linha usada pelos outros projetos;
-- o antigo snapshot textual de 393 `.cpp/.h` permanece preservado apenas como evidência histórica/auditável complementar;
-- `OpenHoldem6Plus/MIGRATION_MAP.md` quantifica e localiza dependências 1326/2652/prwin/Hand_EVAL/SB/BB/dealposition;
-- `ShortDeckRules.h/.cpp` funciona como fronteira 36-card independente dos evaluators tradicionais;
-- C++ nativo já implementa ordem clockwise por dealt-mask, Dealer last e contribuição forçada 2A no Dealer/A nos demais;
-- `TableObservation.h` + `TableObservationValidator` formam o primeiro contrato C++ OH6Plus → DeepSix;
-- `TableObservationJson` produz bytes JSON determinísticos compatíveis com a canonicalização Python;
-- o CI do DeepSix gera uma fixture em C++, reconstrói a mesma observação em Python e exige igualdade byte-a-byte e dos fingerprints semântico/transport;
-- o branch real `myoh_private:deepsix_6plus` já contém a primeira captura **somente leitura** `RawTableSnapshot` sobre `CTableState`/`CPlayer`/`Card`, sem decisão e sem clique;
-- validação estrutural do snapshot bruto foi isolada do código MFC para ser testável fora do executável;
-- `RawTableSnapshotJson` produz uma representação determinística de auditoria; dinheiro bruto permanece string decimal canônica até ser convertido para unidade inteira exata sob configuração de stake;
-- existe um parser/espelho Python versionado de `RawTableSnapshot`;
-- existe gate **cross-repo** que compila o emissor C++ pinado do OH6Plus, produz uma fixture bruta e exige igualdade exata dos bytes/fingerprint no Python/Core;
-- existe um workflow dedicado **DeepSix 6+ boundary CI** no próprio repositório operacional, restrito ao branch `deepsix_6plus`.
-
-### Validação atual
-
-- DeepSix CI até **#56: PASS**;
-- suite Python/Core: **102 testes PASS** no gate #56;
-- independent evaluator oracle **#2: PASS**;
-- exhaustive five-card audit: PASS;
-- baseline C++ ↔ Python evaluator parity: PASS;
-- fast lookup C++ ↔ baseline parity: PASS;
-- C++ ShortDeckRules boundary: PASS;
-- C++ TableObservation validator: PASS;
-- **C++ → JSON canônico → Python/Core → fingerprints: PASS**;
-- betting/full-hand/showdown/replay/legal/canonical/pot/rules/raw-reconstructor tests: PASS;
-- **300 mãos completas fuzzadas deterministicamente: PASS**;
-- `myoh_private:deepsix_6plus` raw-boundary CI **#2: PASS**;
-- cross-repo `OH6Plus RawTableSnapshot C++ → Python/Core`: PASS.
-
-**Nenhuma ação automática está habilitada no OpenHoldem6Plus.** O runtime continua deliberadamente observe/replay-first.
-
-### Próximos gates
-
-1. evoluir o reconstrutor conservador de snapshots estáveis para uma **linha temporal de mão**, inferindo uma ação somente quando a sequência de evidências tiver interpretação única e mantendo `AMBIGUOUS` nos demais casos;
-2. capturar evidência/prints do cliente real para congelar layout de raw chairs, preflop min-raise/reopen após all-ins, stack/buy-in do stake alvo, rake rounding/timing, side-pot/odd-chip, sit-out e campos exatos do scraper/tablemap;
-3. medir o evaluator lookup no **Ryzen 9** com o benchmark versionado e só investir em tabela direta 6/7-card ou perfect hash se profiling mostrar retorno real;
-4. depois da evidência real, ligar logging somente leitura no build dedicado e provar em replays reais `OH6Plus snapshot → TableObservation → CanonicalState` com sequência/fingerprints idênticos offline;
-5. em paralelo, preparar os primeiros **microgames de abstração/solver**, sem ainda congelar sizings de cash real que dependam das capturas, para descobrir qual família de algoritmo compra mais força por CPU-hora.
+Não existe gate artificial de “GTO completo”. O roadmap continua enquanto houver forma mensurável de converter orçamento disponível em estratégia melhor.
