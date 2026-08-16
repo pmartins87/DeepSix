@@ -8,20 +8,21 @@ a fixed river:
 * **blocker pressure** on the configured opponent range, especially on holdings
   that would otherwise beat the player's hand.
 
-This module computes those quantities exactly.  It deliberately avoids neural
+This module computes those quantities exactly. It deliberately avoids neural
 embeddings or learned distances at this stage so every feature can be audited by
 enumeration.
 
-The supplied ``feature_borda_quantile_bucket_map`` is only a baseline.  It ranks
+The supplied ``feature_borda_quantile_bucket_map`` is only a baseline. It ranks
 hands independently by four exact features, averages their percentile ranks with
-equal weight, and then makes deterministic equal-count quantile buckets.  Equal
-weight is explicit rather than tuned to one fixture.  Later learned/clustering
+equal weight, and then makes deterministic equal-count quantile buckets. Equal
+weight is explicit rather than tuned to one fixture. Later learned/clustering
 methods must beat this baseline under the unabstracted exact best response.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 from itertools import combinations
 
 from deepsix_core.cards import NUM_CARDS
@@ -70,6 +71,7 @@ def _opponent_range(config: RiverMultiSizeOneRaiseConfig, player: int):
     raise RiverStateAbstractionError("player must be 0 or 1")
 
 
+@lru_cache(maxsize=None)
 def _universal_equity_and_nutness(
     config: RiverMultiSizeOneRaiseConfig,
     cards: tuple[int, int],
@@ -97,6 +99,7 @@ def _universal_equity_and_nutness(
     return equity, nutness
 
 
+@lru_cache(maxsize=None)
 def exact_river_hand_features(
     config: RiverMultiSizeOneRaiseConfig,
     player: int,
