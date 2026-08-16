@@ -1,6 +1,6 @@
 """Tiny exact CFR baseline using Kuhn poker.
 
-Kuhn is deliberately not a Short Deck strategy model.  It is a trainer
+Kuhn is deliberately not a Short Deck strategy model. It is a trainer
 correctness fixture: imperfect information, chance, bluffing, mixed strategy,
 and exact best-response exploitability all fit in a few auditable states.
 
@@ -9,8 +9,14 @@ Action alphabet:
 * ``p`` = pass/check when no bet is faced, fold when facing a bet;
 * ``b`` = bet when no bet is faced, call when facing a bet.
 
-Cards are J=0, Q=1, K=2.  Utilities are net chips for player 0 after both
+Cards are J=0, Q=1, K=2. Utilities are net chips for player 0 after both
 players ante one chip, so the equilibrium value is -1/18 for player 0.
+
+One CFR iteration is synchronous across all six chance deals: every branch is
+traversed under the strategy that existed at the start of that iteration, then
+all regret/average-strategy deltas are committed together. This makes the tiny
+baseline a clean reference for larger DeepSix trainers rather than silently
+turning chance branches into sequential micro-iterations.
 """
 
 from __future__ import annotations
@@ -109,8 +115,14 @@ class _Node:
         return 0.5, 0.5
 
 
+@dataclass
+class _NodeDelta:
+    regret: list[float] = field(default_factory=lambda: [0.0, 0.0])
+    strategy: list[float] = field(default_factory=lambda: [0.0, 0.0])
+
+
 class KuhnCFR:
-    """Full-chance vanilla CFR with deterministic deal order."""
+    """Synchronous full-chance vanilla CFR with deterministic deal order."""
 
     def __init__(self) -> None:
         self.nodes: dict[tuple[int, str], _Node] = {}
@@ -122,19 +134,30 @@ class KuhnCFR:
             self.nodes[key] = _Node()
         return self.nodes[key]
 
+    @staticmethod
+    def _delta(
+        deltas: dict[tuple[int, str], _NodeDelta], key: tuple[int, str]
+    ) -> _NodeDelta:
+        if key not in deltas:
+            deltas[key] = _NodeDelta()
+        return deltas[key]
+
     def _cfr(
         self,
         cards: tuple[int, int],
         history: str,
         reach0: float,
         reach1: float,
+        chance_reach: float,
+        deltas: dict[tuple[int, str], _NodeDelta],
     ) -> float:
-        """Return utility for player 0 while updating both players' regrets."""
+        """Return P0 utility and accumulate, but do not yet apply, CFR deltas."""
         if history in TERMINALS:
             return _terminal_utility_p0(cards, history)
 
         player = _player_to_act(history)
         card = cards[player]
+        key = _infoset(card, history)
         node = self._node(card, history)
         strategy = node.current_strategy()
 
@@ -147,6 +170,8 @@ class KuhnCFR:
                     history + action,
                     reach0 * strategy[action_index],
                     reach1,
+                    chance_reach,
+                    deltas,
                 )
             else:
                 value = self._cfr(
@@ -154,31 +179,30 @@ class KuhnCFR:
                     history + action,
                     reach0,
                     reach1 * strategy[action_index],
+                    chance_reach,
+                    deltas,
                 )
             action_values[action_index] = value
             node_value += strategy[action_index] * value
 
+        delta = self._delta(deltas, key)
         if player == 0:
-            counterfactual_reach = reach1
-            own_reach = reach0
+            counterfactual_reach = chance_reach * reach1
+            average_reach = chance_reach * reach0
             for action_index in range(2):
-                node.regret_sum[action_index] += counterfactual_reach * (
+                delta.regret[action_index] += counterfactual_reach * (
                     action_values[action_index] - node_value
                 )
-                node.strategy_sum[action_index] += (
-                    own_reach * strategy[action_index]
-                )
+                delta.strategy[action_index] += average_reach * strategy[action_index]
         else:
-            counterfactual_reach = reach0
-            own_reach = reach1
+            counterfactual_reach = chance_reach * reach0
+            average_reach = chance_reach * reach1
             for action_index in range(2):
                 # Player 1 maximizes -u0.
-                node.regret_sum[action_index] += counterfactual_reach * (
+                delta.regret[action_index] += counterfactual_reach * (
                     node_value - action_values[action_index]
                 )
-                node.strategy_sum[action_index] += (
-                    own_reach * strategy[action_index]
-                )
+                delta.strategy[action_index] += average_reach * strategy[action_index]
         return node_value
 
     def train(self, iterations: int) -> None:
@@ -186,25 +210,23 @@ class KuhnCFR:
             raise KuhnError("iterations must be a positive integer")
         chance_weight = 1.0 / len(DEALS)
         for _ in range(iterations):
+            deltas: dict[tuple[int, str], _NodeDelta] = {}
             for cards in DEALS:
-                # Chance probability is common to all traversals.  Scaling both
-                # counterfactual regrets and average-strategy reach by it would
-                # not change regret matching, but including it keeps accounting
-                # semantically exact and future-proof for nonuniform chance.
-                self._cfr(cards, "", chance_weight, chance_weight)
+                self._cfr(cards, "", 1.0, 1.0, chance_weight, deltas)
+            for key, delta in deltas.items():
+                node = self.nodes[key]
+                for action_index in range(2):
+                    node.regret_sum[action_index] += delta.regret[action_index]
+                    node.strategy_sum[action_index] += delta.strategy[action_index]
             self.iterations += 1
 
     def average_policy(self) -> KuhnPolicy:
-        expected_infosets = tuple(
-            (card, history)
-            for card in CARDS
-            for history in ("", "p", "b", "pb")
-            if _player_to_act(history) == (0 if history in ("", "pb") else 1)
-        )
         strategies: dict[tuple[int, str], tuple[float, float]] = {}
-        for key in expected_infosets:
-            node = self.nodes.get(key)
-            strategies[key] = node.average_strategy() if node else (0.5, 0.5)
+        for card in CARDS:
+            for history in ("", "pb", "p", "b"):
+                key = (card, history)
+                node = self.nodes.get(key)
+                strategies[key] = node.average_strategy() if node else (0.5, 0.5)
         return KuhnPolicy(strategies)
 
 
@@ -241,9 +263,6 @@ def _pure_policy_for_player(player: int, bits: tuple[int, ...]) -> KuhnPolicy:
     strategies: dict[tuple[int, str], tuple[float, float]] = {}
     for key, action_index in zip(keys, bits):
         strategies[key] = (1.0, 0.0) if action_index == 0 else (0.0, 1.0)
-    # KuhnPolicy only needs a player's own infosets when used in expected_value;
-    # fill the other player's keys uniformly so the object remains total and
-    # independently usable.
     other_histories = ("p", "b") if player == 0 else ("", "pb")
     for card in CARDS:
         for history in other_histories:
