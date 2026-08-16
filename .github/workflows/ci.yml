@@ -50,6 +50,13 @@ jobs:
           --fixture-limit 1
           --bucket-counts 3,2
           --output /tmp/deepsix_state_abstraction_battery_smoke.json
+      - name: Smoke-test state-abstraction convergence benchmark
+        run: >-
+          python tools/benchmark_river_state_abstraction_convergence.py
+          --checkpoints 1,2
+          --bucket-count 2
+          --fixture-limit 1
+          --output /tmp/deepsix_state_abstraction_convergence_smoke.json
       - name: Smoke-test CFR versus RM+ exact-oracle benchmark
         run: >-
           python tools/benchmark_river_solver_algorithms.py
