@@ -89,7 +89,7 @@ Quando um conceito legado do OpenHoldem não possuir a mesma semântica em 6+, e
 
 ## Estado atual — 16/08/2026
 
-**Fase 0 parcialmente congelada; Fases 1A (Core) e 1B (OpenHoldem6Plus) em execução, com os principais gates estruturais iniciais verdes.**
+**Fase 0 parcialmente congelada; Fases 1A (Core), 1B (OpenHoldem6Plus) e a fundação do contrato da Fase 3 estão em execução, com os principais gates estruturais iniciais verdes.**
 
 ### Regras já congeladas a partir da documentação oficial atual do KKPoker
 
@@ -138,29 +138,32 @@ O evaluator Python é agora um forte **oráculo de correção**. Ainda falta cri
 - fork exclusivo formalizado;
 - proveniência do upstream limpa registrada em `OpenHoldem6Plus/PROVENANCE.md`;
 - baseline upstream pinado em `OpenHoldem/openholdembot@5d2bb3afec7922aab1b72aef1b23265ff6ea1b13`;
-- snapshot textual local do OpenHoldem auditado e hashado, com limitações registradas em `OpenHoldem6Plus/OPERATIONAL_SOURCE_SNAPSHOT.md`;
+- repositório operacional **build-complete** confirmado em `pmartins87/myoh_private`, branch `oh_pre_release_v15`, pinado em `3aa8a28944e3759fecc9323fb9f7361d54d4c9af`;
+- branch dedicada **`deepsix_6plus`** criada nesse repositório exatamente a partir do pin operacional, isolando o desenvolvimento 6+ da linha usada pelos outros projetos;
+- o antigo snapshot textual de 393 `.cpp/.h` permanece preservado apenas como evidência histórica/auditável complementar;
 - `OpenHoldem6Plus/MIGRATION_MAP.md` quantifica e localiza dependências 1326/2652/prwin/Hand_EVAL/SB/BB/dealposition;
-- ferramenta reprodutível `tools/extract_openholdem_source_dump.py` criada para verificar/extrair os 393 arquivos `.cpp/.h` do dump conhecido;
 - `ShortDeckRules.h/.cpp` funciona como fronteira 36-card independente dos evaluators tradicionais;
 - C++ nativo já implementa ordem clockwise por dealt-mask, Dealer last e contribuição forçada 2A no Dealer/A nos demais;
 - `TableObservation.h` + `TableObservationValidator` formam o primeiro contrato C++ OH6Plus → DeepSix;
-- CI compila e executa os testes C++ da fronteira de cartas/regras e do observation validator.
+- `TableObservationJson` produz bytes JSON determinísticos compatíveis com a canonicalização Python;
+- o CI agora gera uma fixture em C++, reconstrói a mesma observação em Python e exige igualdade byte-a-byte e dos fingerprints semântico/transport.
 
 ### Validação atual
 
-- DeepSix CI até **#12: PASS**;
+- DeepSix CI até **#17: PASS**;
 - independent evaluator oracle **#2: PASS**;
 - exhaustive five-card audit: PASS;
 - C++ ShortDeckRules boundary: PASS;
 - C++ TableObservation validator: PASS;
+- **C++ → JSON canônico → Python/Core → fingerprints: PASS**;
 - replay/legal/canonical/pot/rules Core tests: PASS.
 
 **Nenhuma ação automática está habilitada no OpenHoldem6Plus.** O runtime continua deliberadamente observe/replay-first.
 
 ### Próximos gates
 
-1. capturar evidência do cliente real para preflop min-raise/reopen após all-ins, stack/buy-in do stake alvo, rake rounding/timing, side-pot/odd-chip, sit-out e campos exatos do scraper;
-2. obter o snapshot **build-complete** do OpenHoldem operacional atual (o dump textual de 393 arquivos não contém `.sln/.vcxproj` e outros assets);
-3. fechar serialização C++ OH6Plus → fixture versionada → Python/Core e provar fingerprint canônico idêntico cross-language;
-4. construir a state machine de betting/terminalidade com regras parametrizadas e replays adversariais;
+1. construir no branch `deepsix_6plus` a captura **somente leitura** do estado real do OpenHoldem (`CTableState`, dealer/user chair, cartas, seats, bets/balances/pots) para um snapshot bruto versionado, ainda sem clique ou decisão;
+2. construir a state machine de betting/terminalidade que transforma snapshots sucessivos em `TableObservation`, mantendo parametrizadas as regras ainda dependentes de evidência do cliente;
+3. capturar evidência/prints do cliente real para preflop min-raise/reopen após all-ins, stack/buy-in do stake alvo, rake rounding/timing, side-pot/odd-chip, sit-out e campos exatos do scraper/tablemap;
+4. provar em replays reais `OH6Plus snapshot → TableObservation → CanonicalState` com sequência e fingerprints idênticos offline;
 5. só então iniciar os primeiros benchmarks pequenos de abstração/solver para descobrir qual arquitetura compra mais força por CPU-hora no Ryzen 9.
