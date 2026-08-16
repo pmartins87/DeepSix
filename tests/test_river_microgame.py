@@ -21,19 +21,21 @@ def c(text):
 
 def three_level_config():
     # Each player has one high-card combo, one pair-of-kings combo and one
-    # Broadway combo.  Corresponding strength levels use different physical
-    # cards, so all 3x3 ordered chance deals are compatible.
+    # Broadway combo. Corresponding strength levels use different physical
+    # cards, so all 3x3 ordered chance deals are compatible. The weak holdings
+    # deliberately avoid 7+9 here: with A,8,6 on this Short Deck board that
+    # would form the special A6789 straight rather than a high-card hand.
     return RiverMicrogameConfig(
         board=(c("Ac"), c("Kd"), c("Qs"), c("8d"), c("6s")),
         pot=12,
         bet=8,
         p0_range=(
-            RangeHand((c("9c"), c("7d"))),
+            RangeHand((c("Tc"), c("7d"))),
             RangeHand((c("Kc"), c("9s"))),
             RangeHand((c("Jc"), c("Tc"))),
         ),
         p1_range=(
-            RangeHand((c("9h"), c("7s"))),
+            RangeHand((c("Th"), c("7s"))),
             RangeHand((c("Kh"), c("9d"))),
             RangeHand((c("Jh"), c("Th"))),
         ),
