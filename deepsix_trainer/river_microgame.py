@@ -25,13 +25,18 @@ configuration.
 As in the Kuhn reference trainer, a CFR iteration is synchronous: every chance
 branch is traversed under the strategy that existed at the start of the
 iteration, then all regret/average-strategy deltas are committed together.
+
+Exact best response does not enumerate 2^(2N) whole-range policies. With the
+opponent fixed, decisions belonging to different private hands are independent
+additive chance groups, so each own hand is optimized over its four two-node
+pure continuations and the weighted group optima are summed. This remains exact
+for this game while scaling linearly in the number of own range hands.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from functools import lru_cache
-from itertools import product
 from math import isfinite
 from typing import Mapping
 
@@ -385,84 +390,120 @@ def expected_value(
     )
 
 
-def _pure_policy_for_player(
+def _deal_value_against_pure_hand_response(
     config: RiverMicrogameConfig,
-    player: int,
-    bits: tuple[int, ...],
-) -> RiverPolicy:
-    if player == 0:
-        own_range = config.p0_range
-        own_histories = ("", "xb")
-        other_range = config.p1_range
-        other_histories = ("x", "b")
-    elif player == 1:
-        own_range = config.p1_range
-        own_histories = ("x", "b")
-        other_range = config.p0_range
-        other_histories = ("", "xb")
-    else:
-        raise RiverMicrogameError("player must be 0 or 1")
+    fixed_opponent: RiverPolicy,
+    deal: RiverDeal,
+    br_player: int,
+    choices: Mapping[str, int],
+    history: str = "",
+) -> float:
+    if history in TERMINALS:
+        return _terminal_utility_p0(config, deal, history)
+    player = _player_to_act(history)
+    actions = _actions_for_history(history)
+    if player == br_player:
+        try:
+            action_index = choices[history]
+        except KeyError as exc:
+            raise RiverMicrogameError(
+                f"best-response choice missing history {history!r}"
+            ) from exc
+        if action_index not in (0, 1):
+            raise RiverMicrogameError("best-response action index must be binary")
+        return _deal_value_against_pure_hand_response(
+            config,
+            fixed_opponent,
+            deal,
+            br_player,
+            choices,
+            history + actions[action_index],
+        )
 
-    keys = [
-        (player, hand.canonical_cards(), history)
-        for hand in own_range
-        for history in own_histories
-    ]
-    if len(bits) != len(keys):
-        raise RiverMicrogameError("wrong pure-policy bit count")
-
-    strategies: dict[
-        tuple[int, tuple[int, int], str], tuple[float, float]
-    ] = {}
-    for key, bit in zip(keys, bits):
-        strategies[key] = (1.0, 0.0) if bit == 0 else (0.0, 1.0)
-    other_player = 1 - player
-    for hand in other_range:
-        cards = hand.canonical_cards()
-        for history in other_histories:
-            strategies[(other_player, cards, history)] = (0.5, 0.5)
-    return RiverPolicy(strategies)
+    cards = deal.p0_cards if player == 0 else deal.p1_cards
+    strategy = fixed_opponent.strategy(player, cards, history)
+    return sum(
+        strategy[index]
+        * _deal_value_against_pure_hand_response(
+            config,
+            fixed_opponent,
+            deal,
+            br_player,
+            choices,
+            history + action,
+        )
+        for index, action in enumerate(actions)
+    )
 
 
 def best_response_value_player0(
     config: RiverMicrogameConfig,
     opponent: RiverPolicy,
 ) -> float:
-    infosets = 2 * len(config.p0_range)
-    if infosets > 16:
-        raise RiverMicrogameError(
-            "exact pure best response intentionally capped at 16 binary infosets"
-        )
-    best = float("-inf")
-    for bits in product((0, 1), repeat=infosets):
-        best = max(
-            best,
-            expected_value(config, _pure_policy_for_player(config, 0, bits), opponent),
-        )
-    return best
+    """Exact P0 best-response value, optimized independently per P0 hand."""
+    config.validate()
+    deals = config.compatible_deals()
+    total = 0.0
+    for range_hand in config.p0_range:
+        cards = range_hand.canonical_cards()
+        hand_deals = tuple(deal for deal in deals if deal.p0_cards == cards)
+        if not hand_deals:
+            continue
+        best = float("-inf")
+        for root_action in (0, 1):
+            for facing_bet_action in (0, 1):
+                choices = {"": root_action, "xb": facing_bet_action}
+                contribution = sum(
+                    deal.probability
+                    * _deal_value_against_pure_hand_response(
+                        config,
+                        opponent,
+                        deal,
+                        0,
+                        choices,
+                    )
+                    for deal in hand_deals
+                )
+                best = max(best, contribution)
+        total += best
+    return total
 
 
 def best_response_value_player1(
     config: RiverMicrogameConfig,
     opponent: RiverPolicy,
 ) -> float:
-    """Minimum P0 utility achievable by an exact pure best response from P1."""
-    infosets = 2 * len(config.p1_range)
-    if infosets > 16:
-        raise RiverMicrogameError(
-            "exact pure best response intentionally capped at 16 binary infosets"
-        )
-    best_for_p1 = float("inf")
-    for bits in product((0, 1), repeat=infosets):
-        best_for_p1 = min(
-            best_for_p1,
-            expected_value(config, opponent, _pure_policy_for_player(config, 1, bits)),
-        )
-    return best_for_p1
+    """Minimum P0 utility achievable by the exact P1 best response."""
+    config.validate()
+    deals = config.compatible_deals()
+    total = 0.0
+    for range_hand in config.p1_range:
+        cards = range_hand.canonical_cards()
+        hand_deals = tuple(deal for deal in deals if deal.p1_cards == cards)
+        if not hand_deals:
+            continue
+        best_for_p1 = float("inf")
+        for after_check_action in (0, 1):
+            for facing_bet_action in (0, 1):
+                choices = {"x": after_check_action, "b": facing_bet_action}
+                contribution = sum(
+                    deal.probability
+                    * _deal_value_against_pure_hand_response(
+                        config,
+                        opponent,
+                        deal,
+                        1,
+                        choices,
+                    )
+                    for deal in hand_deals
+                )
+                best_for_p1 = min(best_for_p1, contribution)
+        total += best_for_p1
+    return total
 
 
 def exploitability(config: RiverMicrogameConfig, policy: RiverPolicy) -> float:
-    """Exact half-NashConv for small ranges, in configured chip units/hand."""
+    """Exact half-NashConv in configured chip units/hand."""
     br0 = best_response_value_player0(config, policy)
     br1_as_p0 = best_response_value_player1(config, policy)
     return (br0 - br1_as_p0) / 2.0
