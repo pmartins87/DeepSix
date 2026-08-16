@@ -25,7 +25,16 @@ from .canonical import (
 from .equity import EquityResult, exact_heads_up_equity
 from .evaluator import HandCategory, HandValue, evaluate_best, evaluate_five
 from .handclasses import ALL_HAND_CLASSES, combo_count, hand_class_from_cards
+from .legal import LegalActionError, LegalActionSet, legal_actions_for_hero
 from .pots import PotAccountingError, PotLayer, build_pot_layers
+from .replay import (
+    DecisionToken,
+    REPLAY_SCHEMA_VERSION,
+    ReplayFrame,
+    ReplayIntegrityError,
+    observation_from_dict,
+    observation_to_dict,
+)
 from .rules import (
     GameRuleError,
     action_order_from_dealer,
@@ -65,9 +74,18 @@ __all__ = [
     "ALL_HAND_CLASSES",
     "combo_count",
     "hand_class_from_cards",
+    "LegalActionError",
+    "LegalActionSet",
+    "legal_actions_for_hero",
     "PotAccountingError",
     "PotLayer",
     "build_pot_layers",
+    "DecisionToken",
+    "REPLAY_SCHEMA_VERSION",
+    "ReplayFrame",
+    "ReplayIntegrityError",
+    "observation_from_dict",
+    "observation_to_dict",
     "GameRuleError",
     "action_order_from_dealer",
     "initial_ante_contributions",
