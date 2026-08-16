@@ -27,7 +27,7 @@ O roadmap canônico fica em `docs/ROADMAP.md`.
 
 ## Estado atual — 16/08/2026
 
-A fundação matemática já é fortemente gated; o OpenHoldem6Plus possui boundary real C++ ↔ Python; a reconstrução temporal conserva incerteza em vez de inventar ações; a economia possui rake exato configurável sem arredondamento implícito; e o laboratório de solver já permite comparar **largura de ação, primeira camada de raise, abstração privada, counterfactual features e algoritmo de regrets sob um oracle exato comum**.
+A fundação matemática já é fortemente gated; o OpenHoldem6Plus possui boundary real C++ ↔ Python; a reconstrução temporal conserva incerteza em vez de inventar ações; a economia possui rake exato configurável sem arredondamento implícito; e o laboratório de solver já permite comparar **largura de ação, primeira camada de raise, abstração privada, counterfactual features, curvas de convergência e algoritmo de regrets sob um oracle exato comum**.
 
 ### Regras atualmente congeladas
 
@@ -117,7 +117,7 @@ Detalhes: `docs/RAW_EVIDENCE_TIMELINE_V1.md` e `docs/RAW_HAND_START_EVIDENCE_V1.
 
 `deepsix_core.rake` usa `Fraction` e separa explicitamente:
 
-1. elegibilidade/isenções;
+1. elegibilidade/isenções;
 2. percentual/cap exatos;
 3. **rounding do cliente ainda não comprovado**.
 
@@ -156,11 +156,11 @@ O identity bucket continua gated para reproduzir exatamente o CFR não abstraíd
 
 Detalhes: `docs/RIVER_STATE_ABSTRACTION_V1.md`, `docs/RIVER_HAND_FEATURES_V1.md` e `docs/RIVER_COUNTERFACTUAL_FEATURES_V1.md`.
 
-## River Benchmark Battery
+## River Benchmark Battery e convergência
 
 Para evitar escolher uma abstração porque funcionou numa única fixture, existe uma bateria determinística com seis texturas Short Deck. Em cada board são enumerados todos os **465 combos exatos possíveis** das 31 cartas restantes e ranges sintéticos são amostrados mecanicamente em quantis de `HandValue`, com offsets distintos para P0/P1.
 
-A **v3** compara as famílias de state abstraction acima nas mesmas larguras e mede, por método e textura:
+A **State-Abstraction Battery v3** compara as famílias acima nas mesmas larguras e mede, por método e textura:
 
 - nós e action slots;
 - throughput de CFR;
@@ -168,9 +168,13 @@ A **v3** compara as famílias de state abstraction acima nas mesmas larguras e m
 - média, mediana e pior caso;
 - **tempo de construção do mapping** separado do treino.
 
+`benchmark_river_state_abstraction_convergence.py` complementa essa fotografia final treinando cada mapping cumulativamente em vários checkpoints. Em cada ponto registra cumulative wall-clock, exploitability/pot e estrutura. Assim, igual número de iterações deixa de ser confundido com igual custo computacional.
+
+O analyzer constrói uma fronteira por checkpoint usando erro médio, pior caso, cumulative training seconds e nós. O mapping-build cost continua separado por ser um custo one-shot/precompute.
+
 Esses ranges são deliberadamente sintéticos: servem para engenharia comparativa antes de existirem distribuições reais, não para estimar população ou win rate.
 
-Detalhes: `docs/RIVER_BENCHMARK_BATTERY_V1.md` e `docs/RIVER_COUNTERFACTUAL_FEATURES_V1.md`.
+Detalhes: `docs/RIVER_BENCHMARK_BATTERY_V1.md`, `docs/RIVER_COUNTERFACTUAL_FEATURES_V1.md` e `docs/RIVER_STATE_ABSTRACTION_CONVERGENCE_V1.md`.
 
 ## Solver algorithms
 
@@ -200,9 +204,17 @@ Detalhes: `docs/RIVER_RMPLUS_V1.md`.
 
 Perfis: `smoke`, `engineering` e `long`. O primeiro benchmark útil para decisão é `engineering`; `smoke` prova somente wiring.
 
-A suíte consolida action abstraction, scalable multi-size+raise, state-abstraction battery e CFR-vs-RM+ sob uma pasta/manifeste único. `analyze_ryzen_benchmark_suite.py` primeiro verifica os SHA-256 e só então calcula comparações/Pareto dentro de espaços realmente comparáveis. O custo one-shot de construir mappings é reportado separadamente do throughput do CFR.
+A suíte consolida **cinco** linhas sob uma pasta/manifest único:
 
-Detalhes: `docs/RYZEN_BENCHMARK_PROTOCOL_V1.md` e `docs/RYZEN_ANALYZER_V1.md`.
+1. action abstraction;
+2. scalable multi-size + one-raise;
+3. state-abstraction final-budget battery;
+4. state-abstraction convergence;
+5. CFR vs RM+.
+
+`analyze_ryzen_benchmark_suite.py` primeiro verifica os SHA-256 e só então calcula comparações/Pareto dentro de espaços realmente comparáveis. O custo one-shot de construir mappings é reportado separadamente do throughput do CFR.
+
+Detalhes: `docs/RYZEN_BENCHMARK_PROTOCOL_V1.md`, `docs/RYZEN_ANALYZER_V1.md` e `docs/RIVER_STATE_ABSTRACTION_CONVERGENCE_V1.md`.
 
 ## Validação
 
@@ -217,18 +229,21 @@ O CI principal exige simultaneamente:
 - raw reconstruction/timeline/hand-start/rake;
 - action/state/solver exact-oracle gates;
 - gates de nutness/blocker/CFV;
-- smokes dos benchmarks versionados.
+- testes do protocolo/analyzer Ryzen;
+- smokes da state-abstraction battery e da convergence battery;
+- demais smokes dos benchmarks versionados.
 
 Falhas de teste são tratadas como informação. Nesta fase, por exemplo, o evaluator corretamente expôs uma fixture que havia sido classificada intuitivamente como high-card mas formava **A6789**, e a bateria também mostrou que exigir três HandCategories em todo range era um invariant errado para boards double-paired; o gate foi corrigido para refletir diversidade de `HandValue`, não relaxado para fabricar PASS.
 
 ## Próximos gates
 
-1. Executar `python tools/run_ryzen_benchmark_suite.py --profile engineering` no **Ryzen 9** já com a bateria state-abstraction v3 e comparar erro por wall-clock, não apenas iterações/s.
+1. Executar `python tools/run_ryzen_benchmark_suite.py --profile engineering` no **Ryzen 9**, agora com state-abstraction v3 + convergence v1, e comparar redução de erro por custo real.
 2. Capturar evidência real do cliente 6+ para congelar chair layout, timing de `Pot/_bet/_balance`, CHECK/FOLD, hand boundaries, min-raise/reopen, side pots, sit-out, rake rounding e payouts.
-3. Medir CFV k-medoids contra equity-only e equity+nutness+blockers em múltiplos budgets; nenhuma família é promovida por aparência ou smoke de CI.
-4. Se CFV mostrar sinal útil, testar reference policies congeladas mais informativas e/ou distâncias aprendidas, sempre contra identity e Dynamic Exact BR.
-5. Usar os resultados para decidir se a próxima complexidade deve ir para multiple raise sizes/re-raises, mais estados ou o primeiro protótipo multi-street.
-6. Só depois iniciar treino longo de blueprint, evitando gastar meses de CPU sobre uma representação ou abstração ainda não comprovada.
+3. Medir CFV k-medoids contra equity-only e equity+nutness+blockers ao longo dos checkpoints; nenhuma família é promovida por aparência ou smoke de CI.
+4. Se os dados mostrarem que checkpoints de iteração ainda escondem tradeoffs importantes, adicionar uma bateria posterior de **equal-wall-clock budgets**.
+5. Se CFV mostrar sinal útil, testar reference policies congeladas mais informativas e/ou distâncias aprendidas, sempre contra identity e Dynamic Exact BR.
+6. Usar os resultados para decidir se a próxima complexidade deve ir para multiple raise sizes/re-raises, mais estados ou o primeiro protótipo multi-street.
+7. Só depois iniciar treino longo de blueprint, evitando gastar meses de CPU sobre uma representação ou abstração ainda não comprovada.
 
 ## Filosofia de engenharia
 
