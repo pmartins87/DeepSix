@@ -26,9 +26,19 @@ jobs:
       - name: Compile OH6Plus TableObservation validator test
         run: >-
           g++ -std=c++17 -Wall -Wextra -pedantic
-          OpenHoldem6Plus/ShortDeckRules.cpp
           OpenHoldem6Plus/TableObservationValidator.cpp
           OpenHoldem6Plus/tests/table_observation_validator_test.cpp
           -o /tmp/deepsix_table_observation_validator_test
       - name: Run OH6Plus TableObservation validator test
         run: /tmp/deepsix_table_observation_validator_test
+      - name: Compile OH6Plus canonical JSON fixture
+        run: >-
+          g++ -std=c++17 -Wall -Wextra -pedantic
+          OpenHoldem6Plus/TableObservationValidator.cpp
+          OpenHoldem6Plus/TableObservationJson.cpp
+          OpenHoldem6Plus/tests/table_observation_json_test.cpp
+          -o /tmp/deepsix_table_observation_json_test
+      - name: Emit C++ observation fixture
+        run: /tmp/deepsix_table_observation_json_test > /tmp/deepsix_observation_fixture.txt
+      - name: Verify C++ fixture in Python/Core
+        run: python tools/verify_cpp_observation_fixture.py /tmp/deepsix_observation_fixture.txt
