@@ -1,0 +1,50 @@
+name: DeepSix OH6Plus raw cross-repo contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'deepsix_core/raw_snapshot.py'
+      - 'tests/test_raw_snapshot.py'
+      - 'tools/emit_oh6plus_raw_fixture.cpp'
+      - 'tools/verify_oh6plus_raw_fixture.py'
+      - '.github/workflows/oh6plus-raw-contract.yml'
+  pull_request:
+    paths:
+      - 'deepsix_core/raw_snapshot.py'
+      - 'tests/test_raw_snapshot.py'
+      - 'tools/emit_oh6plus_raw_fixture.cpp'
+      - 'tools/verify_oh6plus_raw_fixture.py'
+      - '.github/workflows/oh6plus-raw-contract.yml'
+
+jobs:
+  raw-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout DeepSix
+        uses: actions/checkout@v4
+        with:
+          path: deepsix
+      - name: Checkout pinned OH6Plus raw boundary only
+        uses: actions/checkout@v4
+        with:
+          repository: pmartins87/myoh_private
+          ref: 50a57e89e5f6fbd087eef50b37947a384ee843fe
+          path: oh6plus-source
+          sparse-checkout: |
+            OpenHoldem/DeepSix6Plus
+          sparse-checkout-cone-mode: false
+      - name: Compile pinned OH6Plus C++ raw fixture emitter
+        run: >-
+          g++ -std=c++17 -Wall -Wextra -pedantic
+          oh6plus-source/OpenHoldem/DeepSix6Plus/RawTableSnapshotValidation.cpp
+          oh6plus-source/OpenHoldem/DeepSix6Plus/RawTableSnapshotJson.cpp
+          deepsix/tools/emit_oh6plus_raw_fixture.cpp
+          -Ioh6plus-source/OpenHoldem/DeepSix6Plus
+          -o /tmp/deepsix_raw_fixture
+      - name: Emit pinned OH6Plus raw fixture
+        run: /tmp/deepsix_raw_fixture > /tmp/deepsix_raw_fixture.json
+      - name: Verify exact C++ bytes in Python/Core
+        working-directory: deepsix
+        run: python tools/verify_oh6plus_raw_fixture.py /tmp/deepsix_raw_fixture.json
