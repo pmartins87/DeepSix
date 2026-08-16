@@ -6,14 +6,18 @@ on:
     branches: [main]
     paths:
       - 'deepsix_core/raw_snapshot.py'
+      - 'deepsix_core/raw_reconstructor.py'
       - 'tests/test_raw_snapshot.py'
+      - 'tests/test_raw_reconstructor.py'
       - 'tools/emit_oh6plus_raw_fixture.cpp'
       - 'tools/verify_oh6plus_raw_fixture.py'
       - '.github/workflows/oh6plus-raw-contract.yml'
   pull_request:
     paths:
       - 'deepsix_core/raw_snapshot.py'
+      - 'deepsix_core/raw_reconstructor.py'
       - 'tests/test_raw_snapshot.py'
+      - 'tests/test_raw_reconstructor.py'
       - 'tools/emit_oh6plus_raw_fixture.cpp'
       - 'tools/verify_oh6plus_raw_fixture.py'
       - '.github/workflows/oh6plus-raw-contract.yml'
@@ -26,16 +30,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: deepsix
-      - name: Checkout pinned OH6Plus raw boundary only
+      - name: Checkout pinned OH6Plus raw v2 boundary only
         uses: actions/checkout@v4
         with:
           repository: pmartins87/myoh_private
-          ref: 50a57e89e5f6fbd087eef50b37947a384ee843fe
+          ref: 0a7b753fa811f98278c6f07243c917797006b611
           path: oh6plus-source
           sparse-checkout: |
             OpenHoldem/DeepSix6Plus
           sparse-checkout-cone-mode: false
-      - name: Compile pinned OH6Plus C++ raw fixture emitter
+      - name: Compile pinned OH6Plus C++ raw v2 fixture emitter
         run: >-
           g++ -std=c++17 -Wall -Wextra -pedantic
           oh6plus-source/OpenHoldem/DeepSix6Plus/RawTableSnapshotValidation.cpp
@@ -43,8 +47,8 @@ jobs:
           deepsix/tools/emit_oh6plus_raw_fixture.cpp
           -Ioh6plus-source/OpenHoldem/DeepSix6Plus
           -o /tmp/deepsix_raw_fixture
-      - name: Emit pinned OH6Plus raw fixture
+      - name: Emit pinned OH6Plus raw v2 fixture
         run: /tmp/deepsix_raw_fixture > /tmp/deepsix_raw_fixture.json
-      - name: Verify exact C++ bytes in Python/Core
+      - name: Verify exact C++ v2 bytes in Python/Core
         working-directory: deepsix
         run: python tools/verify_oh6plus_raw_fixture.py /tmp/deepsix_raw_fixture.json
