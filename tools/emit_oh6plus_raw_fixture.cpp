@@ -10,6 +10,8 @@ int main() {
   RawTableSnapshot snapshot;
   snapshot.dealer_chair = 5;
   snapshot.hero_chair = -1;
+  snapshot.hero_myturnbits = kRawMyTurnFold | kRawMyTurnCall | kRawMyTurnRaise;
+  snapshot.hero_sitting_in = true;
   snapshot.community_card_count = 3;
   for (int chair = 0; chair < kRawMaxChairs; ++chair) {
     snapshot.seats[chair].chair = chair;
