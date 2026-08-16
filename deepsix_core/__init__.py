@@ -65,6 +65,12 @@ from .rules import (
     initial_ante_contributions,
     validate_player_count,
 )
+from .showdown import (
+    ResolvedPotLayer,
+    ShowdownError,
+    ShowdownResult,
+    resolve_gross_showdown_fractional,
+)
 from .state import (
     ActionEvent,
     ActionKind,
@@ -134,6 +140,10 @@ __all__ = [
     "action_order_from_dealer",
     "initial_ante_contributions",
     "validate_player_count",
+    "ResolvedPotLayer",
+    "ShowdownError",
+    "ShowdownResult",
+    "resolve_gross_showdown_fractional",
     "ActionEvent",
     "ActionKind",
     "ObservationError",
