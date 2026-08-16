@@ -50,6 +50,8 @@ class Profile:
     scalable_raise_iterations: int
     state_iterations: int
     state_fixture_limit: int | None
+    state_convergence_checkpoints: str
+    state_convergence_fixture_limit: int | None
     solver_checkpoints: str
     solver_fixture_limit: int | None
 
@@ -60,6 +62,8 @@ PROFILES = {
         scalable_raise_iterations=10,
         state_iterations=1,
         state_fixture_limit=1,
+        state_convergence_checkpoints="1,2",
+        state_convergence_fixture_limit=1,
         solver_checkpoints="2",
         solver_fixture_limit=1,
     ),
@@ -68,6 +72,8 @@ PROFILES = {
         scalable_raise_iterations=3000,
         state_iterations=1000,
         state_fixture_limit=None,
+        state_convergence_checkpoints="100,300,1000",
+        state_convergence_fixture_limit=None,
         solver_checkpoints="100,300,1000,3000",
         solver_fixture_limit=None,
     ),
@@ -76,6 +82,8 @@ PROFILES = {
         scalable_raise_iterations=15000,
         state_iterations=5000,
         state_fixture_limit=None,
+        state_convergence_checkpoints="300,1000,3000,5000",
+        state_convergence_fixture_limit=None,
         solver_checkpoints="300,1000,3000,10000",
         solver_fixture_limit=None,
     ),
@@ -119,6 +127,21 @@ def _commands(profile: Profile, output_dir: Path) -> tuple[BenchmarkCommand, ...
     ]
     if profile.state_fixture_limit is not None:
         state_args.extend(["--fixture-limit", str(profile.state_fixture_limit)])
+
+    convergence_args = [
+        python,
+        "tools/benchmark_river_state_abstraction_convergence.py",
+        "--checkpoints",
+        profile.state_convergence_checkpoints,
+        "--bucket-count",
+        "4",
+        "--output",
+        str(output_dir / "state_abstraction_convergence.json"),
+    ]
+    if profile.state_convergence_fixture_limit is not None:
+        convergence_args.extend(
+            ["--fixture-limit", str(profile.state_convergence_fixture_limit)]
+        )
 
     solver_args = [
         python,
@@ -166,6 +189,11 @@ def _commands(profile: Profile, output_dir: Path) -> tuple[BenchmarkCommand, ...
             "state_abstraction_battery",
             tuple(state_args),
             "state_abstraction_battery.json",
+        ),
+        BenchmarkCommand(
+            "state_abstraction_convergence",
+            tuple(convergence_args),
+            "state_abstraction_convergence.json",
         ),
         BenchmarkCommand(
             "solver_algorithms",
@@ -274,6 +302,8 @@ def main() -> int:
             "scalable_raise_iterations": profile.scalable_raise_iterations,
             "state_iterations": profile.state_iterations,
             "state_fixture_limit": profile.state_fixture_limit,
+            "state_convergence_checkpoints": profile.state_convergence_checkpoints,
+            "state_convergence_fixture_limit": profile.state_convergence_fixture_limit,
             "solver_checkpoints": profile.solver_checkpoints,
             "solver_fixture_limit": profile.solver_fixture_limit,
         },
