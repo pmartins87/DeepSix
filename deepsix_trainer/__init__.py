@@ -8,13 +8,35 @@ is trusted with long Ryzen runs.
 from .kuhn import (
     KuhnCFR,
     KuhnPolicy,
-    exploitability,
-    expected_value,
+    exploitability as kuhn_exploitability,
+    expected_value as kuhn_expected_value,
+)
+from .river_microgame import (
+    RangeHand,
+    RiverCFR,
+    RiverDeal,
+    RiverMicrogameConfig,
+    RiverMicrogameError,
+    RiverPolicy,
+    best_response_value_player0 as river_best_response_value_player0,
+    best_response_value_player1 as river_best_response_value_player1,
+    expected_value as river_expected_value,
+    exploitability as river_exploitability,
 )
 
 __all__ = [
     "KuhnCFR",
     "KuhnPolicy",
-    "exploitability",
-    "expected_value",
+    "kuhn_exploitability",
+    "kuhn_expected_value",
+    "RangeHand",
+    "RiverCFR",
+    "RiverDeal",
+    "RiverMicrogameConfig",
+    "RiverMicrogameError",
+    "RiverPolicy",
+    "river_best_response_value_player0",
+    "river_best_response_value_player1",
+    "river_expected_value",
+    "river_exploitability",
 ]
