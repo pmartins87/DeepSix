@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Benchmark private-hand bucket compression under one fixed action game.
 
-Every case uses the same exact Short Deck board, ranges and action tree.  Only
-the mapping from exact private combos to CFR infosets changes.  After training,
+Every case uses the same exact Short Deck board, ranges and action tree. Only
+the mapping from exact private combos to CFR infosets changes. After training,
 the bucket policy is expanded back to exact combos and evaluated with the
 unabstracted dynamic exact best response.
 
@@ -51,14 +51,14 @@ def config() -> ScalableRiverMultiSizeOneRaiseConfig:
         bet_sizes=(4, 8),
         raise_to=14,
         p0_range=(
-            RangeHand((c("9c"), c("7c"))),
+            RangeHand((c("Ts"), c("9c"))),
             RangeHand((c("Tc"), c("7d"))),
             RangeHand((c("Kc"), c("7h"))),
             RangeHand((c("Kc"), c("9s"))),
             RangeHand((c("Jc"), c("Tc"))),
         ),
         p1_range=(
-            RangeHand((c("9h"), c("7s"))),
+            RangeHand((c("Td"), c("9h"))),
             RangeHand((c("Th"), c("7s"))),
             RangeHand((c("Kh"), c("7c"))),
             RangeHand((c("Kh"), c("9d"))),
@@ -77,7 +77,7 @@ def run_case(
     start = time.perf_counter()
     trainer.train(iterations)
     seconds = time.perf_counter() - start
-    exploitability = trainer.exact_unabstracted_exploitability()
+    exact_loss = trainer.exact_unabstracted_exploitability()
     exact_hands = (len(cfg.p0_range), len(cfg.p1_range))
     bucket_counts = (mapping.bucket_count(0), mapping.bucket_count(1))
     return {
@@ -93,8 +93,8 @@ def run_case(
         "iterations_per_second": iterations / seconds,
         "nodes": len(trainer.nodes),
         "node_action_slots": sum(node.action_count for node in trainer.nodes.values()),
-        "exact_unabstracted_exploitability": exploitability,
-        "exact_unabstracted_exploitability_over_pot": exploitability / cfg.pot,
+        "exact_unabstracted_exploitability": exact_loss,
+        "exact_unabstracted_exploitability_over_pot": exact_loss / cfg.pot,
         "seconds": seconds,
     }
 
