@@ -203,13 +203,12 @@ class BettingRoundTests(unittest.TestCase):
         state = start_betting_round(
             street=Street.FLOP,
             players=(
-                BettingPlayer(0, stack=90, committed_street=10),
+                BettingPlayer(0, stack=100, committed_street=0),
                 BettingPlayer(1, stack=100, committed_street=0),
             ),
             initial_full_raise_increment=10,
         )
         self.assertEqual(state.next_actor, 0)
-        # Seat 0 is already at the current price, so check; seat 1 then faces no bet.
         state = apply_action(state, ActionKind.CHECK)
         self.assertEqual(state.next_actor, 1)
         state = apply_action(state, ActionKind.RAISE_TO, 10)
