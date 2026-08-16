@@ -1,0 +1,32 @@
+name: DeepSix independent evaluator oracle
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'deepsix_core/cards.py'
+      - 'deepsix_core/evaluator.py'
+      - 'tools/crosscheck_pokerkit.py'
+      - '.github/workflows/evaluator-oracle.yml'
+  pull_request:
+    paths:
+      - 'deepsix_core/cards.py'
+      - 'deepsix_core/evaluator.py'
+      - 'tools/crosscheck_pokerkit.py'
+      - '.github/workflows/evaluator-oracle.yml'
+
+jobs:
+  pokerkit-crosscheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install pinned independent Short Deck oracle
+        run: >-
+          python -m pip install
+          'git+https://github.com/uoftcprg/pokerkit.git@5841c0afe4d6eb71ae5db0f8a6a376ee3e329afb'
+      - name: Cross-check DeepSix evaluator against PokerKit
+        run: python tools/crosscheck_pokerkit.py
