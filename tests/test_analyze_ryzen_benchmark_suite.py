@@ -16,7 +16,11 @@ def write_json(path, payload):
 
 
 class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
-    def make_run(self, root: Path):
+    def make_run(
+        self,
+        root: Path,
+        suite: str = "deepsix_ryzen_benchmark_suite_v2",
+    ):
         outputs = {
             "action_abstraction": {
                 "cases": [{"sizes": [4], "nodes": 10}, {"sizes": [4, 8], "nodes": 20}]
@@ -171,6 +175,9 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
                 ]
             },
         }
+        if suite == "deepsix_ryzen_benchmark_suite_v1":
+            outputs.pop("state_abstraction_convergence")
+
         commands = []
         for name, payload in outputs.items():
             output = root / f"{name}.json"
@@ -187,7 +194,7 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
                 }
             )
         manifest = {
-            "suite": "deepsix_ryzen_benchmark_suite_v1",
+            "suite": suite,
             "profile": "engineering",
             "git_commit": "abc123",
             "machine": {"processor": "fixture"},
@@ -196,13 +203,14 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
         }
         write_json(root / "manifest.json", manifest)
 
-    def test_verified_analysis_finds_expected_pareto_candidates(self):
+    def test_verified_v2_analysis_finds_expected_pareto_candidates(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.make_run(root)
             result = analyze_run(root)
             self.assertTrue(result["evidence_sha256_verified"])
             self.assertEqual(result["analysis"], "deepsix_ryzen_benchmark_analysis_v2")
+            self.assertEqual(result["source_suite"], "deepsix_ryzen_benchmark_suite_v2")
             self.assertEqual(result["solver"]["final_checkpoint"], 300)
             self.assertEqual(result["solver"]["pareto_candidates"], ["rmplus"])
             self.assertIn("identity", result["state_abstraction"]["pareto_candidates"])
@@ -214,6 +222,17 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
             self.assertIn("identity", convergence["300"]["pareto_candidates"])
             self.assertIn("compressed", convergence["300"]["pareto_candidates"])
             self.assertNotIn("dominated", convergence["300"]["pareto_candidates"])
+
+    def test_legacy_v1_manifest_remains_verifiable_and_analyzable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.make_run(root, suite="deepsix_ryzen_benchmark_suite_v1")
+            result = analyze_run(root)
+            self.assertTrue(result["evidence_sha256_verified"])
+            self.assertEqual(result["source_suite"], "deepsix_ryzen_benchmark_suite_v1")
+            self.assertIsNone(result["state_abstraction_convergence"])
+            self.assertIn("legacy_note", result)
+            self.assertEqual(result["solver"]["final_checkpoint"], 300)
 
     def test_tampered_output_is_rejected_before_analysis(self):
         with tempfile.TemporaryDirectory() as temporary:
