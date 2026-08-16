@@ -138,15 +138,22 @@ class RiverMicrogameTests(unittest.TestCase):
     def test_exact_best_response_scales_past_old_eight_hand_limit(self):
         base = three_level_config()
         available = [card for card in range(36) if card not in set(base.board)]
-        exact_combos = list(combinations(available, 2))
+        # Use disjoint six-card pools so every P0 exact combo is compatible with
+        # every P1 exact combo. Taking consecutive combinations from one shared
+        # pool can accidentally make all cross-range deals collide on a card.
+        p0_pool = available[:6]
+        p1_pool = available[6:12]
+        p0_combos = list(combinations(p0_pool, 2))[:9]
+        p1_combos = list(combinations(p1_pool, 2))[:9]
         config = RiverMicrogameConfig(
             board=base.board,
             pot=base.pot,
             bet=base.bet,
-            p0_range=tuple(RangeHand(combo) for combo in exact_combos[:9]),
-            p1_range=tuple(RangeHand(combo) for combo in exact_combos[9:18]),
+            p0_range=tuple(RangeHand(combo) for combo in p0_combos),
+            p1_range=tuple(RangeHand(combo) for combo in p1_combos),
         )
         config.validate()
+        self.assertEqual(len(config.compatible_deals()), 81)
         policy = uniform_policy(config)
         value = expected_value(config, policy, policy)
         self.assertGreaterEqual(best_response_value_player0(config, policy) + 1e-12, value)
