@@ -8,7 +8,9 @@ does it derive comparison summaries.
 It can compute Pareto candidates where metrics are genuinely comparable:
 
 * solver algorithms use the same exact game/oracle at the same checkpoint;
-* private-state abstractions use the same action game and unabstracted exact BR.
+* private-state abstractions use the same action game and unabstracted exact BR;
+* state-abstraction convergence compares methods at the same cumulative
+  iteration checkpoint while preserving measured wall-clock as a cost axis.
 
 It does **not** rank different action spaces by exploitability, because a richer
 action set changes the game in which exploitability is defined. Those results
@@ -207,6 +209,78 @@ def analyze_state_abstraction(payload: dict) -> dict:
     }
 
 
+def analyze_state_convergence(payload: dict) -> dict:
+    aggregate = payload.get("aggregate_by_checkpoint")
+    if not isinstance(aggregate, dict) or not aggregate:
+        raise RyzenAnalysisError(
+            "state-abstraction convergence benchmark has no checkpoint aggregate"
+        )
+
+    checkpoints = {}
+    for checkpoint_text in sorted(aggregate, key=lambda value: int(value)):
+        source_rows = aggregate[checkpoint_text]
+        if not isinstance(source_rows, list) or not source_rows:
+            raise RyzenAnalysisError(
+                f"state convergence checkpoint {checkpoint_text} has no methods"
+            )
+        methods = []
+        for row in source_rows:
+            methods.append(
+                {
+                    "name": row["mapping"],
+                    "fixtures": row["fixtures"],
+                    "iterations": int(row["iterations"]),
+                    "mean_exploitability_over_pot": row[
+                        "mean_exploitability_over_pot"
+                    ],
+                    "max_exploitability_over_pot": row[
+                        "max_exploitability_over_pot"
+                    ],
+                    "mean_cumulative_training_seconds": row[
+                        "mean_cumulative_training_seconds"
+                    ],
+                    "mean_iterations_per_second": row[
+                        "mean_iterations_per_second"
+                    ],
+                    "mean_nodes": row["mean_nodes"],
+                    "mean_mapping_build_seconds": row.get(
+                        "mean_mapping_build_seconds", 0.0
+                    ),
+                }
+            )
+        pareto = _pareto(
+            methods,
+            (
+                ("mean_exploitability_over_pot", False),
+                ("max_exploitability_over_pot", False),
+                ("mean_cumulative_training_seconds", False),
+                ("mean_nodes", False),
+            ),
+        )
+        checkpoints[str(int(checkpoint_text))] = {
+            "methods": methods,
+            "pareto_candidates": pareto,
+        }
+
+    return {
+        "checkpoints": checkpoints,
+        "comparison_boundary": (
+            "all methods within a checkpoint have the same cumulative iteration "
+            "count and exact oracle, but not equal wall-clock; measured cumulative "
+            "training seconds are therefore retained as a Pareto cost axis"
+        ),
+        "mapping_build_cost_note": (
+            "mapping construction remains reported separately because it is a "
+            "one-time/precompute cost rather than per-iteration CFR cost"
+        ),
+        "promotion_rule": (
+            "prefer methods that remain near the frontier across multiple "
+            "checkpoints and fixtures; no single checkpoint can promote an "
+            "abstraction family"
+        ),
+    }
+
+
 def analyze_action_structure(payload: dict) -> dict:
     cases = payload.get("cases", [])
     if not cases:
@@ -228,6 +302,7 @@ def analyze_run(run_dir: Path) -> dict:
         "action_abstraction",
         "scalable_multisize_raise",
         "state_abstraction_battery",
+        "state_abstraction_convergence",
         "solver_algorithms",
     }
     if set(outputs) != required:
@@ -235,7 +310,7 @@ def analyze_run(run_dir: Path) -> dict:
             f"unexpected benchmark outputs: {sorted(outputs)}"
         )
     return {
-        "analysis": "deepsix_ryzen_benchmark_analysis_v1",
+        "analysis": "deepsix_ryzen_benchmark_analysis_v2",
         "git_commit": manifest["git_commit"],
         "profile": manifest["profile"],
         "machine": manifest["machine"],
@@ -243,6 +318,9 @@ def analyze_run(run_dir: Path) -> dict:
         "solver": analyze_solver(outputs["solver_algorithms"]),
         "state_abstraction": analyze_state_abstraction(
             outputs["state_abstraction_battery"]
+        ),
+        "state_abstraction_convergence": analyze_state_convergence(
+            outputs["state_abstraction_convergence"]
         ),
         "action_abstraction": analyze_action_structure(outputs["action_abstraction"]),
         "scalable_multisize_raise": analyze_action_structure(
