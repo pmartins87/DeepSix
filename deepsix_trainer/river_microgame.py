@@ -19,8 +19,9 @@ a bet-fold pays +/- pot/2 to the bettor, and a called bet pays
 
 Ranges are finite sets of exact two-card Short Deck combos with positive
 weights.  Chance deals are the compatible ordered range pairs, normalized by
-product weights.  This lets us audit every state and exact best response before
-attempting larger abstractions.
+product weights.  Showdown ordering is precomputed once per compatible deal so
+solver iterations spend time on strategy rather than re-evaluating the same
+seven cards at every terminal node.
 """
 
 from __future__ import annotations
@@ -61,6 +62,14 @@ class RangeHand:
 
 
 @dataclass(frozen=True)
+class RiverDeal:
+    p0_cards: tuple[int, int]
+    p1_cards: tuple[int, int]
+    probability: float
+    showdown_sign: int
+
+
+@dataclass(frozen=True)
 class RiverMicrogameConfig:
     board: tuple[int, int, int, int, int]
     pot: int
@@ -97,9 +106,9 @@ class RiverMicrogameConfig:
         if not self.compatible_deals():
             raise RiverMicrogameError("ranges contain no compatible chance deal")
 
-    def compatible_deals(self) -> tuple["RiverDeal", ...]:
+    def compatible_deals(self) -> tuple[RiverDeal, ...]:
         board_set = set(self.board)
-        raw: list[tuple[tuple[int, int], tuple[int, int], float]] = []
+        raw: list[tuple[tuple[int, int], tuple[int, int], float, int]] = []
         total_weight = 0.0
         for p0 in self.p0_range:
             p0_cards = p0.canonical_cards()
@@ -110,21 +119,17 @@ class RiverMicrogameConfig:
                 if set(p1_cards) & board_set or set(p0_cards) & set(p1_cards):
                     continue
                 weight = p0.weight * p1.weight
-                raw.append((p0_cards, p1_cards, weight))
+                p0_value: HandValue = evaluate_best(p0_cards + self.board)
+                p1_value: HandValue = evaluate_best(p1_cards + self.board)
+                sign = 1 if p0_value > p1_value else -1 if p0_value < p1_value else 0
+                raw.append((p0_cards, p1_cards, weight, sign))
                 total_weight += weight
         if not raw or total_weight <= 0.0:
             return ()
         return tuple(
-            RiverDeal(p0_cards, p1_cards, weight / total_weight)
-            for p0_cards, p1_cards, weight in raw
+            RiverDeal(p0_cards, p1_cards, weight / total_weight, sign)
+            for p0_cards, p1_cards, weight, sign in raw
         )
-
-
-@dataclass(frozen=True)
-class RiverDeal:
-    p0_cards: tuple[int, int]
-    p1_cards: tuple[int, int]
-    probability: float
 
 
 @dataclass(frozen=True)
@@ -192,19 +197,6 @@ def _actions_for_history(history: str) -> tuple[str, str]:
     raise RiverMicrogameError(f"history has no legal actions: {history!r}")
 
 
-def _showdown_sign(
-    config: RiverMicrogameConfig,
-    deal: RiverDeal,
-) -> int:
-    p0_value: HandValue = evaluate_best(deal.p0_cards + config.board)
-    p1_value: HandValue = evaluate_best(deal.p1_cards + config.board)
-    if p0_value > p1_value:
-        return 1
-    if p0_value < p1_value:
-        return -1
-    return 0
-
-
 def _terminal_utility_p0(
     config: RiverMicrogameConfig,
     deal: RiverDeal,
@@ -216,9 +208,9 @@ def _terminal_utility_p0(
     if history == "xbf":
         return -half_pot
     if history == "xx":
-        return _showdown_sign(config, deal) * half_pot
+        return deal.showdown_sign * half_pot
     if history in ("bc", "xbc"):
-        return _showdown_sign(config, deal) * (half_pot + config.bet)
+        return deal.showdown_sign * (half_pot + config.bet)
     raise RiverMicrogameError("history is not terminal")
 
 
@@ -349,9 +341,10 @@ def expected_value(
     policy1: RiverPolicy,
 ) -> float:
     config.validate()
+    deals = config.compatible_deals()
     return sum(
         deal.probability * _deal_value(config, policy0, policy1, deal)
-        for deal in config.compatible_deals()
+        for deal in deals
     )
 
 
