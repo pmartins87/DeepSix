@@ -2,10 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from tools.run_ryzen_benchmark_suite import PROFILES, _commands
+from tools.run_ryzen_benchmark_suite import PROFILES, SUITE_VERSION, _commands
 
 
 class RyzenBenchmarkSuiteTests(unittest.TestCase):
+    def test_manifest_contract_is_v2_after_convergence_output(self):
+        self.assertEqual(SUITE_VERSION, "deepsix_ryzen_benchmark_suite_v2")
+
     def test_profiles_are_strictly_ordered_by_primary_budgets(self):
         smoke = PROFILES["smoke"]
         engineering = PROFILES["engineering"]
