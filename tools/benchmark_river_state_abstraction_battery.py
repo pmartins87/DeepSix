@@ -6,13 +6,16 @@ reduce single-fixture overfitting while real-game range distributions are not
 yet available. Each trained bucket policy is expanded to exact private hands
 and evaluated by the unabstracted dynamic best response.
 
-Two transparent quantile families are compared at the same requested widths:
+Three transparent strategic-information families are now compared at the same
+requested widths:
 
 * showdown-equity-only quantiles;
-* equal-rank feature aggregation using range equity, universal equity, nutness
-  and stronger-range blocker pressure.
+* equal-rank aggregation of equity, nutness and blocker pressure;
+* deterministic k-medoids over uniform-reference counterfactual action values.
 
-No benchmark result automatically promotes either family.
+The CFV mapping is intentionally reference-policy based rather than learned from
+the same CFR run it is evaluating.  No benchmark result automatically promotes
+any family.
 """
 
 from __future__ import annotations
@@ -29,6 +32,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from deepsix_trainer.river_counterfactual_features import (  # noqa: E402
+    cfv_kmedoids_bucket_map,
+)
 from deepsix_trainer.river_hand_features import (  # noqa: E402
     feature_borda_quantile_bucket_map,
 )
@@ -55,17 +61,44 @@ def parse_bucket_counts(text: str) -> tuple[int, ...]:
     return values
 
 
-def mapping_family(cfg, bucket_counts: tuple[int, ...]) -> tuple[RiverBucketMap, ...]:
-    return (
-        identity_bucket_map(cfg),
-        *(equity_quantile_bucket_map(cfg, count) for count in bucket_counts),
-        *(feature_borda_quantile_bucket_map(cfg, count) for count in bucket_counts),
-        showdown_category_bucket_map(cfg),
-        single_bucket_map(cfg),
-    )
+def _timed_mapping(builder) -> tuple[RiverBucketMap, float]:
+    start = time.perf_counter()
+    mapping = builder()
+    return mapping, time.perf_counter() - start
 
 
-def run_case(spec, cfg, mapping: RiverBucketMap, iterations: int) -> dict:
+def mapping_family(
+    cfg,
+    bucket_counts: tuple[int, ...],
+) -> tuple[tuple[RiverBucketMap, float], ...]:
+    output: list[tuple[RiverBucketMap, float]] = []
+    output.append(_timed_mapping(lambda: identity_bucket_map(cfg)))
+    for count in bucket_counts:
+        output.append(
+            _timed_mapping(lambda count=count: equity_quantile_bucket_map(cfg, count))
+        )
+    for count in bucket_counts:
+        output.append(
+            _timed_mapping(
+                lambda count=count: feature_borda_quantile_bucket_map(cfg, count)
+            )
+        )
+    for count in bucket_counts:
+        output.append(
+            _timed_mapping(lambda count=count: cfv_kmedoids_bucket_map(cfg, count))
+        )
+    output.append(_timed_mapping(lambda: showdown_category_bucket_map(cfg)))
+    output.append(_timed_mapping(lambda: single_bucket_map(cfg)))
+    return tuple(output)
+
+
+def run_case(
+    spec,
+    cfg,
+    mapping: RiverBucketMap,
+    mapping_build_seconds: float,
+    iterations: int,
+) -> dict:
     trainer = BucketedRiverCFR(cfg, mapping)
     start = time.perf_counter()
     trainer.train(iterations)
@@ -82,11 +115,12 @@ def run_case(spec, cfg, mapping: RiverBucketMap, iterations: int) -> dict:
         "bucket_counts": [mapping.bucket_count(0), mapping.bucket_count(1)],
         "nodes": len(trainer.nodes),
         "action_slots": sum(node.action_count for node in trainer.nodes.values()),
+        "mapping_build_seconds": mapping_build_seconds,
         "iterations": iterations,
         "iterations_per_second": iterations / seconds,
         "exact_unabstracted_exploitability": exact_loss,
         "exploitability_over_pot": exact_loss / cfg.pot,
-        "seconds": seconds,
+        "training_seconds": seconds,
     }
 
 
@@ -101,6 +135,7 @@ def aggregate(cases: list[dict]) -> list[dict]:
         normalized = [case["exploitability_over_pot"] for case in selected]
         throughputs = [case["iterations_per_second"] for case in selected]
         nodes = [case["nodes"] for case in selected]
+        build_times = [case["mapping_build_seconds"] for case in selected]
         output.append(
             {
                 "mapping": name,
@@ -110,6 +145,8 @@ def aggregate(cases: list[dict]) -> list[dict]:
                 "median_exploitability_over_pot": statistics.median(normalized),
                 "mean_iterations_per_second": statistics.fmean(throughputs),
                 "mean_nodes": statistics.fmean(nodes),
+                "mean_mapping_build_seconds": statistics.fmean(build_times),
+                "max_mapping_build_seconds": max(build_times),
             }
         )
     return output
@@ -118,7 +155,11 @@ def aggregate(cases: list[dict]) -> list[dict]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--iterations", type=int, default=1500)
-    parser.add_argument("--bucket-counts", type=parse_bucket_counts, default=parse_bucket_counts("6,4,2"))
+    parser.add_argument(
+        "--bucket-counts",
+        type=parse_bucket_counts,
+        default=parse_bucket_counts("6,4,2"),
+    )
     parser.add_argument("--fixture-limit", type=int)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
@@ -133,11 +174,19 @@ def main() -> int:
 
     cases = []
     for spec, cfg in battery:
-        for mapping in mapping_family(cfg, args.bucket_counts):
-            cases.append(run_case(spec, cfg, mapping, args.iterations))
+        for mapping, build_seconds in mapping_family(cfg, args.bucket_counts):
+            cases.append(
+                run_case(
+                    spec,
+                    cfg,
+                    mapping,
+                    build_seconds,
+                    args.iterations,
+                )
+            )
 
     result = {
-        "benchmark": "deepsix_river_state_abstraction_battery_v2",
+        "benchmark": "deepsix_river_state_abstraction_battery_v3",
         "machine": {
             "machine": platform.machine(),
             "platform": platform.platform(),
@@ -151,12 +200,16 @@ def main() -> int:
             "identity",
             "conditional_equity_quantiles",
             "equity_nutness_blocker_borda_quantiles",
+            "uniform_reference_cfv_kmedoids",
             "showdown_category",
             "single",
         ],
+        "cfv_reference_policy": "uniform continuation at every future infoset",
         "warning": (
             "synthetic mechanically sampled river ranges; use for comparative "
-            "abstraction engineering, not as a model of live population ranges"
+            "abstraction engineering, not as a model of live population ranges. "
+            "CFV mappings use a fixed uniform reference and must still earn any "
+            "promotion under the unabstracted exact best response."
         ),
         "cases": cases,
         "aggregate": aggregate(cases),
