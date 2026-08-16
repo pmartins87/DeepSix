@@ -119,7 +119,11 @@ A especificação, a reconciliação das páginas oficiais e as ambiguidades ain
 - canonicalização exata de ordem das hole cards, ordem interna do flop, 24 permutações globais de naipes e labels físicos de chairs relativos ao Dealer;
 - pot/side-pot layer accounting com conservação exata de contribuições;
 - legal-action boundary com `FOLD/CHECK/CALL/RAISE_TO` e intervalo de raise-to explícito;
-- `ReplayFrame` + `DecisionToken` para detectar corrupção e invalidar decisões quando o estado muda.
+- `ReplayFrame` + `DecisionToken` para detectar corrupção e invalidar decisões quando o estado muda;
+- **betting-round state machine No-Limit determinística**, com full raises, short all-ins, ordem de ação, fechamento de dry side pots, terminalidade por fold e conservação de fichas;
+- comportamento de reopen após short all-ins mantido explicitamente parametrizado (`NEVER`, `ANY_INCREASE`, `CUMULATIVE_FULL_RAISE`) até evidência real do cliente.
+
+A semântica e os gates dessa máquina estão registrados em `docs/BETTING_STATE_MACHINE_V1.md`.
 
 ### Validação matemática atual
 
@@ -146,24 +150,29 @@ O evaluator Python é agora um forte **oráculo de correção**. Ainda falta cri
 - C++ nativo já implementa ordem clockwise por dealt-mask, Dealer last e contribuição forçada 2A no Dealer/A nos demais;
 - `TableObservation.h` + `TableObservationValidator` formam o primeiro contrato C++ OH6Plus → DeepSix;
 - `TableObservationJson` produz bytes JSON determinísticos compatíveis com a canonicalização Python;
-- o CI agora gera uma fixture em C++, reconstrói a mesma observação em Python e exige igualdade byte-a-byte e dos fingerprints semântico/transport.
+- o CI do DeepSix gera uma fixture em C++, reconstrói a mesma observação em Python e exige igualdade byte-a-byte e dos fingerprints semântico/transport;
+- o branch real `myoh_private:deepsix_6plus` já contém a primeira captura **somente leitura** `RawTableSnapshot` sobre `CTableState`/`CPlayer`/`Card`, sem decisão e sem clique;
+- validação estrutural do snapshot bruto foi isolada do código MFC para ser testável fora do executável;
+- `RawTableSnapshotJson` produz uma representação determinística de auditoria; dinheiro bruto permanece string de round-trip do `double` até ser convertido para unidade inteira exata sob configuração de stake;
+- existe um workflow dedicado **DeepSix 6+ boundary CI** no próprio repositório operacional, restrito ao branch `deepsix_6plus`.
 
 ### Validação atual
 
-- DeepSix CI até **#17: PASS**;
+- DeepSix CI até **#26: PASS**;
 - independent evaluator oracle **#2: PASS**;
 - exhaustive five-card audit: PASS;
 - C++ ShortDeckRules boundary: PASS;
 - C++ TableObservation validator: PASS;
 - **C++ → JSON canônico → Python/Core → fingerprints: PASS**;
-- replay/legal/canonical/pot/rules Core tests: PASS.
+- betting/replay/legal/canonical/pot/rules Core tests: PASS;
+- `myoh_private:deepsix_6plus` raw-boundary CI **#2: PASS** — validação e serialização puras compiladas/testadas independentemente do MFC.
 
 **Nenhuma ação automática está habilitada no OpenHoldem6Plus.** O runtime continua deliberadamente observe/replay-first.
 
 ### Próximos gates
 
-1. construir no branch `deepsix_6plus` a captura **somente leitura** do estado real do OpenHoldem (`CTableState`, dealer/user chair, cartas, seats, bets/balances/pots) para um snapshot bruto versionado, ainda sem clique ou decisão;
-2. construir a state machine de betting/terminalidade que transforma snapshots sucessivos em `TableObservation`, mantendo parametrizadas as regras ainda dependentes de evidência do cliente;
+1. criar o parser/fixture Python do `RawTableSnapshot` e provar paridade da serialização bruta antes de ligá-la ao heartbeat do OH;
+2. construir a state machine **de mão completa** que usa a betting-round machine para preflop/flop/turn/river, terminalidade e showdown, ainda sem rake cliente-específico embutido;
 3. capturar evidência/prints do cliente real para preflop min-raise/reopen após all-ins, stack/buy-in do stake alvo, rake rounding/timing, side-pot/odd-chip, sit-out e campos exatos do scraper/tablemap;
-4. provar em replays reais `OH6Plus snapshot → TableObservation → CanonicalState` com sequência e fingerprints idênticos offline;
+4. depois dos gates anteriores, ligar logging somente leitura no build dedicado e provar em replays reais `OH6Plus snapshot → TableObservation → CanonicalState` com sequência/fingerprints idênticos offline;
 5. só então iniciar os primeiros benchmarks pequenos de abstração/solver para descobrir qual arquitetura compra mais força por CPU-hora no Ryzen 9.
