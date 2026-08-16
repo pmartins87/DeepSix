@@ -5,6 +5,18 @@ critical trainer/runtime code may later use another implementation, but it must
 match this package's versioned semantics and regression vectors.
 """
 
+from .betting import (
+    BettingConfig,
+    BettingPlayer,
+    BettingRoundState,
+    BettingStateError,
+    RoundLegalActions,
+    ShortAllInReopenPolicy,
+    apply_action,
+    legal_actions,
+    round_chip_total,
+    start_betting_round,
+)
 from .cards import (
     RANKS,
     SUITS,
@@ -52,6 +64,16 @@ from .state import (
 )
 
 __all__ = [
+    "BettingConfig",
+    "BettingPlayer",
+    "BettingRoundState",
+    "BettingStateError",
+    "RoundLegalActions",
+    "ShortAllInReopenPolicy",
+    "apply_action",
+    "legal_actions",
+    "round_chip_total",
+    "start_betting_round",
     "RANKS",
     "SUITS",
     "ShortDeckCardError",
