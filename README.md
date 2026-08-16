@@ -89,7 +89,7 @@ Quando um conceito legado do OpenHoldem não possuir a mesma semântica em 6+, e
 
 ## Estado atual — 16/08/2026
 
-**Fase 0 parcialmente congelada; Fases 1A (Core), 1B (OpenHoldem6Plus) e a fundação do contrato da Fase 3 estão em execução, com os principais gates estruturais iniciais verdes.**
+**Fase 0 parcialmente congelada; Fases 1A (Core), 1B (OpenHoldem6Plus) e a fundação da Fase 3 já avançaram até uma máquina de mão completa e auditável. Os principais gates estruturais atuais estão verdes.**
 
 ### Regras já congeladas a partir da documentação oficial atual do KKPoker
 
@@ -121,9 +121,14 @@ A especificação, a reconciliação das páginas oficiais e as ambiguidades ain
 - legal-action boundary com `FOLD/CHECK/CALL/RAISE_TO` e intervalo de raise-to explícito;
 - `ReplayFrame` + `DecisionToken` para detectar corrupção e invalidar decisões quando o estado muda;
 - **betting-round state machine No-Limit determinística**, com full raises, short all-ins, ordem de ação, fechamento de dry side pots, terminalidade por fold e conservação de fichas;
-- comportamento de reopen após short all-ins mantido explicitamente parametrizado (`NEVER`, `ANY_INCREASE`, `CUMULATIVE_FULL_RAISE`) até evidência real do cliente.
+- comportamento de reopen após short all-ins mantido explicitamente parametrizado (`NEVER`, `ANY_INCREASE`, `CUMULATIVE_FULL_RAISE`) até evidência real do cliente;
+- **máquina de mão completa** `forced bets → preflop → flop → turn → river → showdown/fold terminal`, com board chance events explícitos, chairs físicos esparsos, stacks/committed-total persistentes e sequência global de ações;
+- runout automático sem betting quando todos os jogadores remanescentes estão all-in;
+- resolvedor de showdown bruto que combina evaluator + main/side pots e conserva exatamente o pot;
+- empates de pot são mantidos como `Fraction` exata, sem inventar regra de odd-chip ainda não observada no cliente;
+- fuzzing determinístico de mãos completas cobrindo contagens de jogadores, chairs, stacks, folds, calls, checks, raises, all-ins e streets, sempre exigindo conservação de fichas e terminalidade.
 
-A semântica e os gates dessa máquina estão registrados em `docs/BETTING_STATE_MACHINE_V1.md`.
+A semântica e os gates da betting machine estão registrados em `docs/BETTING_STATE_MACHINE_V1.md`.
 
 ### Validação matemática atual
 
@@ -153,26 +158,30 @@ O evaluator Python é agora um forte **oráculo de correção**. Ainda falta cri
 - o CI do DeepSix gera uma fixture em C++, reconstrói a mesma observação em Python e exige igualdade byte-a-byte e dos fingerprints semântico/transport;
 - o branch real `myoh_private:deepsix_6plus` já contém a primeira captura **somente leitura** `RawTableSnapshot` sobre `CTableState`/`CPlayer`/`Card`, sem decisão e sem clique;
 - validação estrutural do snapshot bruto foi isolada do código MFC para ser testável fora do executável;
-- `RawTableSnapshotJson` produz uma representação determinística de auditoria; dinheiro bruto permanece string de round-trip do `double` até ser convertido para unidade inteira exata sob configuração de stake;
+- `RawTableSnapshotJson` produz uma representação determinística de auditoria; dinheiro bruto permanece string decimal canônica até ser convertido para unidade inteira exata sob configuração de stake;
+- existe um parser/espelho Python versionado de `RawTableSnapshot`;
+- existe gate **cross-repo** que compila o emissor C++ pinado do OH6Plus, produz uma fixture bruta e exige igualdade exata dos bytes/fingerprint no Python/Core;
 - existe um workflow dedicado **DeepSix 6+ boundary CI** no próprio repositório operacional, restrito ao branch `deepsix_6plus`.
 
 ### Validação atual
 
-- DeepSix CI até **#26: PASS**;
+- DeepSix CI até **#39: PASS**;
 - independent evaluator oracle **#2: PASS**;
 - exhaustive five-card audit: PASS;
 - C++ ShortDeckRules boundary: PASS;
 - C++ TableObservation validator: PASS;
 - **C++ → JSON canônico → Python/Core → fingerprints: PASS**;
-- betting/replay/legal/canonical/pot/rules Core tests: PASS;
-- `myoh_private:deepsix_6plus` raw-boundary CI **#2: PASS** — validação e serialização puras compiladas/testadas independentemente do MFC.
+- betting/full-hand/showdown/replay/legal/canonical/pot/rules Core tests: PASS;
+- **300 mãos completas fuzzadas deterministicamente: PASS**;
+- `myoh_private:deepsix_6plus` raw-boundary CI **#2: PASS**;
+- cross-repo `OH6Plus RawTableSnapshot C++ → Python/Core`: PASS.
 
 **Nenhuma ação automática está habilitada no OpenHoldem6Plus.** O runtime continua deliberadamente observe/replay-first.
 
 ### Próximos gates
 
-1. criar o parser/fixture Python do `RawTableSnapshot` e provar paridade da serialização bruta antes de ligá-la ao heartbeat do OH;
-2. construir a state machine **de mão completa** que usa a betting-round machine para preflop/flop/turn/river, terminalidade e showdown, ainda sem rake cliente-específico embutido;
+1. construir o **evaluator nativo de alta performance** e provar paridade regressiva/exaustiva contra o oracle Python antes de permitir seu uso no hot path do trainer;
+2. construir o reconstrutor conservador `RawTableSnapshot[] → HandState/TableObservation`, preservando explicitamente estados ambíguos em vez de adivinhar ações;
 3. capturar evidência/prints do cliente real para preflop min-raise/reopen após all-ins, stack/buy-in do stake alvo, rake rounding/timing, side-pot/odd-chip, sit-out e campos exatos do scraper/tablemap;
-4. depois dos gates anteriores, ligar logging somente leitura no build dedicado e provar em replays reais `OH6Plus snapshot → TableObservation → CanonicalState` com sequência/fingerprints idênticos offline;
+4. depois da evidência real, ligar logging somente leitura no build dedicado e provar em replays reais `OH6Plus snapshot → TableObservation → CanonicalState` com sequência/fingerprints idênticos offline;
 5. só então iniciar os primeiros benchmarks pequenos de abstração/solver para descobrir qual arquitetura compra mais força por CPU-hora no Ryzen 9.
