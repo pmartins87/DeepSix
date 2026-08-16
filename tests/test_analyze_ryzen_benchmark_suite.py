@@ -33,6 +33,8 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
                         "max_exploitability_over_pot": 0.02,
                         "mean_iterations_per_second": 100.0,
                         "mean_nodes": 100.0,
+                        "mean_mapping_build_seconds": 0.01,
+                        "max_mapping_build_seconds": 0.02,
                     },
                     {
                         "mapping": "compressed",
@@ -41,6 +43,8 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
                         "max_exploitability_over_pot": 0.03,
                         "mean_iterations_per_second": 180.0,
                         "mean_nodes": 40.0,
+                        "mean_mapping_build_seconds": 0.2,
+                        "max_mapping_build_seconds": 0.3,
                     },
                     {
                         "mapping": "dominated",
@@ -49,8 +53,90 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
                         "max_exploitability_over_pot": 0.04,
                         "mean_iterations_per_second": 150.0,
                         "mean_nodes": 60.0,
+                        "mean_mapping_build_seconds": 0.1,
+                        "max_mapping_build_seconds": 0.15,
                     },
                 ]
+            },
+            "state_abstraction_convergence": {
+                "aggregate_by_checkpoint": {
+                    "100": [
+                        {
+                            "mapping": "identity",
+                            "fixtures": 2,
+                            "iterations": 100,
+                            "mean_exploitability_over_pot": 0.03,
+                            "median_exploitability_over_pot": 0.03,
+                            "max_exploitability_over_pot": 0.04,
+                            "mean_cumulative_training_seconds": 10.0,
+                            "mean_iterations_per_second": 10.0,
+                            "mean_nodes": 100.0,
+                            "mean_mapping_build_seconds": 0.01,
+                        },
+                        {
+                            "mapping": "compressed",
+                            "fixtures": 2,
+                            "iterations": 100,
+                            "mean_exploitability_over_pot": 0.04,
+                            "median_exploitability_over_pot": 0.04,
+                            "max_exploitability_over_pot": 0.05,
+                            "mean_cumulative_training_seconds": 5.0,
+                            "mean_iterations_per_second": 20.0,
+                            "mean_nodes": 40.0,
+                            "mean_mapping_build_seconds": 0.2,
+                        },
+                        {
+                            "mapping": "dominated",
+                            "fixtures": 2,
+                            "iterations": 100,
+                            "mean_exploitability_over_pot": 0.05,
+                            "median_exploitability_over_pot": 0.05,
+                            "max_exploitability_over_pot": 0.06,
+                            "mean_cumulative_training_seconds": 7.0,
+                            "mean_iterations_per_second": 14.0,
+                            "mean_nodes": 60.0,
+                            "mean_mapping_build_seconds": 0.1,
+                        },
+                    ],
+                    "300": [
+                        {
+                            "mapping": "identity",
+                            "fixtures": 2,
+                            "iterations": 300,
+                            "mean_exploitability_over_pot": 0.01,
+                            "median_exploitability_over_pot": 0.01,
+                            "max_exploitability_over_pot": 0.02,
+                            "mean_cumulative_training_seconds": 30.0,
+                            "mean_iterations_per_second": 10.0,
+                            "mean_nodes": 100.0,
+                            "mean_mapping_build_seconds": 0.01,
+                        },
+                        {
+                            "mapping": "compressed",
+                            "fixtures": 2,
+                            "iterations": 300,
+                            "mean_exploitability_over_pot": 0.02,
+                            "median_exploitability_over_pot": 0.02,
+                            "max_exploitability_over_pot": 0.03,
+                            "mean_cumulative_training_seconds": 15.0,
+                            "mean_iterations_per_second": 20.0,
+                            "mean_nodes": 40.0,
+                            "mean_mapping_build_seconds": 0.2,
+                        },
+                        {
+                            "mapping": "dominated",
+                            "fixtures": 2,
+                            "iterations": 300,
+                            "mean_exploitability_over_pot": 0.03,
+                            "median_exploitability_over_pot": 0.03,
+                            "max_exploitability_over_pot": 0.04,
+                            "mean_cumulative_training_seconds": 20.0,
+                            "mean_iterations_per_second": 15.0,
+                            "mean_nodes": 60.0,
+                            "mean_mapping_build_seconds": 0.1,
+                        },
+                    ],
+                }
             },
             "solver_algorithms": {
                 "rows": [
@@ -116,11 +202,18 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
             self.make_run(root)
             result = analyze_run(root)
             self.assertTrue(result["evidence_sha256_verified"])
+            self.assertEqual(result["analysis"], "deepsix_ryzen_benchmark_analysis_v2")
             self.assertEqual(result["solver"]["final_checkpoint"], 300)
             self.assertEqual(result["solver"]["pareto_candidates"], ["rmplus"])
             self.assertIn("identity", result["state_abstraction"]["pareto_candidates"])
             self.assertIn("compressed", result["state_abstraction"]["pareto_candidates"])
             self.assertNotIn("dominated", result["state_abstraction"]["pareto_candidates"])
+
+            convergence = result["state_abstraction_convergence"]["checkpoints"]
+            self.assertEqual(tuple(convergence), ("100", "300"))
+            self.assertIn("identity", convergence["300"]["pareto_candidates"])
+            self.assertIn("compressed", convergence["300"]["pareto_candidates"])
+            self.assertNotIn("dominated", convergence["300"]["pareto_candidates"])
 
     def test_tampered_output_is_rejected_before_analysis(self):
         with tempfile.TemporaryDirectory() as temporary:
