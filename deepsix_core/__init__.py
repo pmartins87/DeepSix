@@ -15,6 +15,7 @@ from .cards import (
     legacy_rank_suit_to_core,
     parse_card,
 )
+from .equity import EquityResult, exact_heads_up_equity
 from .evaluator import HandCategory, HandValue, evaluate_best, evaluate_five
 from .handclasses import ALL_HAND_CLASSES, combo_count, hand_class_from_cards
 from .state import (
@@ -36,6 +37,8 @@ __all__ = [
     "format_card",
     "legacy_rank_suit_to_core",
     "parse_card",
+    "EquityResult",
+    "exact_heads_up_equity",
     "HandCategory",
     "HandValue",
     "evaluate_best",

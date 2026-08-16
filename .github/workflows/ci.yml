@@ -15,3 +15,11 @@ jobs:
           python-version: '3.11'
       - name: Run reference-core tests
         run: python -m unittest discover -s tests -v
+      - name: Compile OH6Plus ShortDeckRules boundary test
+        run: >-
+          g++ -std=c++17 -Wall -Wextra -pedantic
+          OpenHoldem6Plus/ShortDeckRules.cpp
+          OpenHoldem6Plus/tests/shortdeck_rules_test.cpp
+          -o /tmp/deepsix_shortdeck_rules_test
+      - name: Run OH6Plus ShortDeckRules boundary test
+        run: /tmp/deepsix_shortdeck_rules_test
