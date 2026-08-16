@@ -7,7 +7,11 @@ import json
 import sys
 from pathlib import Path
 
-from deepsix_core.state import (
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from deepsix_core.state import (  # noqa: E402
     ActionEvent,
     ActionKind,
     SeatObservation,
