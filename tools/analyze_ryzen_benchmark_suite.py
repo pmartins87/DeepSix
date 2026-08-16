@@ -5,6 +5,11 @@ The analyzer is intentionally conservative. It first verifies the SHA-256
 recorded in ``manifest.json`` for every benchmark JSON and stdout log. Only then
 does it derive comparison summaries.
 
+Supported manifest contracts:
+
+* v1 — four original benchmark outputs;
+* v2 — adds state-abstraction convergence curves.
+
 It can compute Pareto candidates where metrics are genuinely comparable:
 
 * solver algorithms use the same exact game/oracle at the same checkpoint;
@@ -26,6 +31,12 @@ import statistics
 from pathlib import Path
 
 
+SUPPORTED_SUITES = {
+    "deepsix_ryzen_benchmark_suite_v1",
+    "deepsix_ryzen_benchmark_suite_v2",
+}
+
+
 class RyzenAnalysisError(ValueError):
     pass
 
@@ -43,7 +54,7 @@ def load_verified_manifest(run_dir: Path) -> dict:
     if not manifest_path.is_file():
         raise RyzenAnalysisError("manifest.json not found")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("suite") != "deepsix_ryzen_benchmark_suite_v1":
+    if manifest.get("suite") not in SUPPORTED_SUITES:
         raise RyzenAnalysisError("unsupported benchmark-suite manifest")
     if manifest.get("success") is not True:
         raise RyzenAnalysisError("benchmark suite is not marked successful")
@@ -298,19 +309,28 @@ def analyze_run(run_dir: Path) -> dict:
     run_dir = run_dir.resolve()
     manifest = load_verified_manifest(run_dir)
     outputs = _command_outputs(manifest, run_dir)
-    required = {
+    suite = manifest["suite"]
+    legacy_required = {
         "action_abstraction",
         "scalable_multisize_raise",
         "state_abstraction_battery",
-        "state_abstraction_convergence",
         "solver_algorithms",
     }
+    if suite == "deepsix_ryzen_benchmark_suite_v1":
+        required = legacy_required
+    elif suite == "deepsix_ryzen_benchmark_suite_v2":
+        required = legacy_required | {"state_abstraction_convergence"}
+    else:  # guarded by load_verified_manifest; defensive for direct reuse.
+        raise RyzenAnalysisError("unsupported benchmark-suite manifest")
+
     if set(outputs) != required:
         raise RyzenAnalysisError(
-            f"unexpected benchmark outputs: {sorted(outputs)}"
+            f"unexpected benchmark outputs for {suite}: {sorted(outputs)}"
         )
-    return {
+
+    result = {
         "analysis": "deepsix_ryzen_benchmark_analysis_v2",
+        "source_suite": suite,
         "git_commit": manifest["git_commit"],
         "profile": manifest["profile"],
         "machine": manifest["machine"],
@@ -319,14 +339,22 @@ def analyze_run(run_dir: Path) -> dict:
         "state_abstraction": analyze_state_abstraction(
             outputs["state_abstraction_battery"]
         ),
-        "state_abstraction_convergence": analyze_state_convergence(
-            outputs["state_abstraction_convergence"]
-        ),
         "action_abstraction": analyze_action_structure(outputs["action_abstraction"]),
         "scalable_multisize_raise": analyze_action_structure(
             outputs["scalable_multisize_raise"]
         ),
     }
+    if suite == "deepsix_ryzen_benchmark_suite_v2":
+        result["state_abstraction_convergence"] = analyze_state_convergence(
+            outputs["state_abstraction_convergence"]
+        )
+    else:
+        result["state_abstraction_convergence"] = None
+        result["legacy_note"] = (
+            "v1 manifest predates the state-abstraction convergence battery; "
+            "all original evidence remains verified and analyzable"
+        )
+    return result
 
 
 def main() -> int:
