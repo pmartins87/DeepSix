@@ -47,8 +47,8 @@ class SeatObservation:
     committed_total: int
 
     def validate(self) -> None:
-        if self.seat < 0:
-            raise ObservationError("seat must be non-negative")
+        if self.seat < 0 or self.seat >= 6:
+            raise ObservationError("seat must be in physical OH6Plus range 0..5")
         for name in ("stack", "committed_street", "committed_total"):
             if getattr(self, name) < 0:
                 raise ObservationError(f"{name} must be non-negative")
@@ -67,8 +67,10 @@ class ActionEvent:
     amount_to: int | None = None
 
     def validate(self) -> None:
-        if self.seq < 0 or self.actor_seat < 0:
-            raise ObservationError("action seq/actor_seat must be non-negative")
+        if self.seq < 0:
+            raise ObservationError("action seq must be non-negative")
+        if self.actor_seat < 0 or self.actor_seat >= 6:
+            raise ObservationError("action actor_seat must be in physical OH6Plus range 0..5")
         if self.action == ActionKind.RAISE_TO:
             if self.amount_to is None or self.amount_to < 0:
                 raise ObservationError("raise_to requires non-negative amount_to")
