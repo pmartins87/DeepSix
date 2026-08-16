@@ -25,6 +25,14 @@ jobs:
         run: /tmp/deepsix_native_evaluator_digest > /tmp/deepsix_native_evaluator_digest.txt
       - name: Verify native evaluator exhaustively against Python oracle
         run: python tools/verify_native_evaluator_digest.py /tmp/deepsix_native_evaluator_digest.txt
+      - name: Compile native evaluator informational benchmark
+        run: >-
+          g++ -std=c++17 -O3 -DNDEBUG -Wall -Wextra -pedantic
+          native/ShortDeckEvaluator.cpp
+          native/bench/shortdeck_evaluator_benchmark.cpp
+          -o /tmp/deepsix_native_evaluator_benchmark
+      - name: Report native evaluator throughput (non-gating)
+        run: /tmp/deepsix_native_evaluator_benchmark
       - name: Compile OH6Plus ShortDeckRules boundary test
         run: >-
           g++ -std=c++17 -Wall -Wextra -pedantic
