@@ -50,6 +50,13 @@ jobs:
           --fixture-limit 1
           --bucket-counts 3,2
           --output /tmp/deepsix_state_abstraction_battery_smoke.json
+      - name: Smoke-test CFR versus RM+ exact-oracle benchmark
+        run: >-
+          python tools/benchmark_river_solver_algorithms.py
+          --checkpoints 2
+          --rmplus-delay 0
+          --fixture-limit 1
+          --output /tmp/deepsix_solver_algorithms_smoke.json
       - name: Compile native Short Deck evaluator digest
         run: >-
           g++ -std=c++17 -O3 -Wall -Wextra -pedantic
