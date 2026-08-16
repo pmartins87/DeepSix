@@ -89,7 +89,7 @@ Quando um conceito legado do OpenHoldem não possuir a mesma semântica em 6+, e
 
 ## Estado atual — 16/08/2026
 
-**Fase 0 parcialmente congelada; Fases 1A (Core) e 1B (OpenHoldem6Plus) iniciadas e com os primeiros gates verdes.**
+**Fase 0 parcialmente congelada; Fases 1A (Core) e 1B (OpenHoldem6Plus) em execução, com os principais gates estruturais iniciais verdes.**
 
 ### Regras já congeladas a partir da documentação oficial atual do KKPoker
 
@@ -100,9 +100,12 @@ Quando um conceito legado do OpenHoldem não possuir a mesma semântica em 6+, e
 - primeiro jogador à esquerda do Dealer age primeiro em todas as streets;
 - No-Limit;
 - Flush > Full House;
-- A6789 é a menor sequência.
+- A6789 é a menor sequência;
+- minimum bet publicado = tamanho do button blind;
+- full raise deve ter incremento pelo menos igual ao bet/raise anterior da street;
+- no-rake small-pot threshold publicado para 6+ = **10 antes** (equivalente ao `5BB` usado em outra página do site).
 
-A especificação e as ambiguidades ainda abertas estão em `docs/GAME_SPEC_KKPOKER_V0.md`.
+A especificação, a reconciliação das páginas oficiais e as ambiguidades ainda abertas estão em `docs/GAME_SPEC_KKPOKER_V0.md`.
 
 ### DeepSix Core já implementado
 
@@ -110,33 +113,54 @@ A especificação e as ambiguidades ainda abertas estão em `docs/GAME_SPEC_KKPO
 - **81 hand classes** Short Deck cobrindo exatamente **630 combos**;
 - evaluator de 5 cartas e best-of-5 para 5/6/7 cartas;
 - A6789 e ranking KKPoker testados;
-- contrato `TableObservation` v1 com validação e fingerprints semânticos/transport;
 - oracle de equity HU por enumeração exata para validação offline;
-- suíte Python em CI.
+- regras estruturais nativas de ante/Dealer e ordem de ação;
+- `TableObservation` v1 com validação e fingerprints semântico/transport;
+- canonicalização exata de ordem das hole cards, ordem interna do flop, 24 permutações globais de naipes e labels físicos de chairs relativos ao Dealer;
+- pot/side-pot layer accounting com conservação exata de contribuições;
+- legal-action boundary com `FOLD/CHECK/CALL/RAISE_TO` e intervalo de raise-to explícito;
+- `ReplayFrame` + `DecisionToken` para detectar corrupção e invalidar decisões quando o estado muda.
+
+### Validação matemática atual
+
+O evaluator de referência já passou por múltiplas camadas independentes:
+
+- testes unitários de regras especiais;
+- enumeração de **todas as 376.992 mãos de cinco cartas** do deck de 36 cartas, com distribuição analítica exata por categoria;
+- vetores documentados do PokerKit;
+- oracle externo pinado em `uoftcprg/pokerkit@5841c0afe4d6eb71ae5db0f8a6a376ee3e329afb`;
+- comparação determinística contra o PokerKit em **10.000 pares de mãos de cinco cartas + 2.000 showdowns de sete cartas**, sem divergência de ordering.
+
+O evaluator Python é agora um forte **oráculo de correção**. Ainda falta criar/benchmarkar o evaluator nativo de alta performance e exigir paridade bit-a-bit/regressiva antes de usá-lo no hot path do trainer.
 
 ### OpenHoldem6Plus já iniciado
 
 - fork exclusivo formalizado;
 - proveniência do upstream limpa registrada em `OpenHoldem6Plus/PROVENANCE.md`;
 - baseline upstream pinado em `OpenHoldem/openholdembot@5d2bb3afec7922aab1b72aef1b23265ff6ea1b13`;
-- `ShortDeckRules.h/.cpp` criado como fronteira 36-card independente dos evaluators tradicionais;
-- `TableObservation.h` criado para o transporte OH6Plus → DeepSix;
-- teste C++ prova rejeição de ranks 2..5 e bijeção 6..A → ids 0..35;
-- o CI agora compila e executa também esse teste C++.
+- snapshot textual local do OpenHoldem auditado e hashado, com limitações registradas em `OpenHoldem6Plus/OPERATIONAL_SOURCE_SNAPSHOT.md`;
+- `OpenHoldem6Plus/MIGRATION_MAP.md` quantifica e localiza dependências 1326/2652/prwin/Hand_EVAL/SB/BB/dealposition;
+- ferramenta reprodutível `tools/extract_openholdem_source_dump.py` criada para verificar/extrair os 393 arquivos `.cpp/.h` do dump conhecido;
+- `ShortDeckRules.h/.cpp` funciona como fronteira 36-card independente dos evaluators tradicionais;
+- C++ nativo já implementa ordem clockwise por dealt-mask, Dealer last e contribuição forçada 2A no Dealer/A nos demais;
+- `TableObservation.h` + `TableObservationValidator` formam o primeiro contrato C++ OH6Plus → DeepSix;
+- CI compila e executa os testes C++ da fronteira de cartas/regras e do observation validator.
 
 ### Validação atual
 
-- CI #1: PASS;
-- CI #2: PASS — evaluator, hand classes e observation contract;
-- CI #3: PASS — oracle de equity + compilação/teste da fronteira C++ OH6Plus.
+- DeepSix CI até **#12: PASS**;
+- independent evaluator oracle **#2: PASS**;
+- exhaustive five-card audit: PASS;
+- C++ ShortDeckRules boundary: PASS;
+- C++ TableObservation validator: PASS;
+- replay/legal/canonical/pot/rules Core tests: PASS.
 
-Ainda **não** consideramos o evaluator definitivamente certificado: falta a comparação independente contra outro motor Short Deck e testes/exhaustive audits adicionais. Também ainda não habilitamos qualquer ação automática no OH6Plus.
+**Nenhuma ação automática está habilitada no OpenHoldem6Plus.** O runtime continua deliberadamente observe/replay-first.
 
 ### Próximos gates
 
-1. obter evidência real do cliente para min-raise, stacks, rake/rounding e estados especiais;
-2. importar o snapshot **operacionalmente autoritativo** do OpenHoldem atual, separando claramente upstream e modificações locais;
-3. construir pot accounting, side pots e legal-action engine no Core;
-4. implementar canonicalização de naipes/assentos/ordem de cartas e provar ausência de colisões estratégicas;
-5. criar o primeiro replay OH6Plus → `TableObservation` → fingerprint idêntico offline;
-6. somente então iniciar benchmarks de abstração/solver para decidir como gastar os meses de Ryzen 9.
+1. capturar evidência do cliente real para preflop min-raise/reopen após all-ins, stack/buy-in do stake alvo, rake rounding/timing, side-pot/odd-chip, sit-out e campos exatos do scraper;
+2. obter o snapshot **build-complete** do OpenHoldem operacional atual (o dump textual de 393 arquivos não contém `.sln/.vcxproj` e outros assets);
+3. fechar serialização C++ OH6Plus → fixture versionada → Python/Core e provar fingerprint canônico idêntico cross-language;
+4. construir a state machine de betting/terminalidade com regras parametrizadas e replays adversariais;
+5. só então iniciar os primeiros benchmarks pequenos de abstração/solver para descobrir qual arquitetura compra mais força por CPU-hora no Ryzen 9.
