@@ -89,7 +89,7 @@ Quando um conceito legado do OpenHoldem não possuir a mesma semântica em 6+, e
 
 ## Estado atual — 16/08/2026
 
-**Fase 0 parcialmente congelada; Fases 1A (Core), 1B (OpenHoldem6Plus) e a fundação da Fase 3 já avançaram até uma máquina de mão completa e auditável. Os principais gates estruturais atuais estão verdes.**
+**Fase 0 parcialmente congelada; Fases 1A (Core), 1B (OpenHoldem6Plus) e a fundação da Fase 3 avançaram até máquina de mão completa, evaluator nativo validado e primeira camada conservadora de reconstrução do estado bruto. Os principais gates estruturais atuais estão verdes.**
 
 ### Regras já congeladas a partir da documentação oficial atual do KKPoker
 
@@ -126,13 +126,16 @@ A especificação, a reconciliação das páginas oficiais e as ambiguidades ain
 - runout automático sem betting quando todos os jogadores remanescentes estão all-in;
 - resolvedor de showdown bruto que combina evaluator + main/side pots e conserva exatamente o pot;
 - empates de pot são mantidos como `Fraction` exata, sem inventar regra de odd-chip ainda não observada no cliente;
-- fuzzing determinístico de mãos completas cobrindo contagens de jogadores, chairs, stacks, folds, calls, checks, raises, all-ins e streets, sempre exigindo conservação de fichas e terminalidade.
+- fuzzing determinístico de mãos completas cobrindo contagens de jogadores, chairs, stacks, folds, calls, checks, raises, all-ins e streets, sempre exigindo conservação de fichas e terminalidade;
+- primeira camada `RawTableSnapshot → ProjectedSnapshot`, com **mapeamento explícito de raw chairs**, conversão decimal→unidade inteira exata e rejeição de quantização não exata;
+- `StableSnapshotGate` exige repetição semântica de frames antes de liberar estado estável;
+- classificador de transição diferencia `UNCHANGED`, `SAME_STREET_DELTA`, `FORWARD_STREET`, `HAND_BOUNDARY_CANDIDATE` e `AMBIGUOUS` **sem inventar fold/call/raise** a partir de um delta de tela.
 
-A semântica e os gates da betting machine estão registrados em `docs/BETTING_STATE_MACHINE_V1.md`.
+A semântica e os gates da betting machine estão registrados em `docs/BETTING_STATE_MACHINE_V1.md`. O plano de coleta do cliente real está em `docs/REAL_CLIENT_CAPTURE_PLAN.md`.
 
-### Validação matemática atual
+### Validação matemática e evaluator nativo
 
-O evaluator de referência já passou por múltiplas camadas independentes:
+O evaluator Python de referência já passou por múltiplas camadas independentes:
 
 - testes unitários de regras especiais;
 - enumeração de **todas as 376.992 mãos de cinco cartas** do deck de 36 cartas, com distribuição analítica exata por categoria;
@@ -140,7 +143,14 @@ O evaluator de referência já passou por múltiplas camadas independentes:
 - oracle externo pinado em `uoftcprg/pokerkit@5841c0afe4d6eb71ae5db0f8a6a376ee3e329afb`;
 - comparação determinística contra o PokerKit em **10.000 pares de mãos de cinco cartas + 2.000 showdowns de sete cartas**, sem divergência de ordering.
 
-O evaluator Python é agora um forte **oráculo de correção**. Ainda falta criar/benchmarkar o evaluator nativo de alta performance e exigir paridade bit-a-bit/regressiva antes de usá-lo no hot path do trainer.
+O caminho nativo C++ também está implementado e gated:
+
+- baseline `ShortDeckEvaluator` comparado contra o Python por digest de **todas as 376.992 mãos de cinco cartas + 4.000 mãos de seis cartas + 6.000 mãos de sete cartas: PASS**;
+- `FastShortDeckEvaluator` possui lookup exato das 376.992 combinações de cinco cartas e passou contra o baseline em **todas as cinco-cartas + 10.000 seis-cartas + 20.000 sete-cartas: PASS**;
+- benchmark informativo do runner CI, sobre as mesmas 200.000 mãos de sete cartas: baseline **475.651,58 eval/s**, lookup **1.412.406,71 eval/s**, ganho observado **2,97×**;
+- não existe threshold de performance no CI e o número do runner não será extrapolado para o Ryzen 9.
+
+A implementação e a política de promoção estão documentadas em `docs/NATIVE_EVALUATOR_V1.md`.
 
 ### OpenHoldem6Plus já iniciado
 
@@ -165,13 +175,16 @@ O evaluator Python é agora um forte **oráculo de correção**. Ainda falta cri
 
 ### Validação atual
 
-- DeepSix CI até **#39: PASS**;
+- DeepSix CI até **#56: PASS**;
+- suite Python/Core: **102 testes PASS** no gate #56;
 - independent evaluator oracle **#2: PASS**;
 - exhaustive five-card audit: PASS;
+- baseline C++ ↔ Python evaluator parity: PASS;
+- fast lookup C++ ↔ baseline parity: PASS;
 - C++ ShortDeckRules boundary: PASS;
 - C++ TableObservation validator: PASS;
 - **C++ → JSON canônico → Python/Core → fingerprints: PASS**;
-- betting/full-hand/showdown/replay/legal/canonical/pot/rules Core tests: PASS;
+- betting/full-hand/showdown/replay/legal/canonical/pot/rules/raw-reconstructor tests: PASS;
 - **300 mãos completas fuzzadas deterministicamente: PASS**;
 - `myoh_private:deepsix_6plus` raw-boundary CI **#2: PASS**;
 - cross-repo `OH6Plus RawTableSnapshot C++ → Python/Core`: PASS.
@@ -180,8 +193,8 @@ O evaluator Python é agora um forte **oráculo de correção**. Ainda falta cri
 
 ### Próximos gates
 
-1. construir o **evaluator nativo de alta performance** e provar paridade regressiva/exaustiva contra o oracle Python antes de permitir seu uso no hot path do trainer;
-2. construir o reconstrutor conservador `RawTableSnapshot[] → HandState/TableObservation`, preservando explicitamente estados ambíguos em vez de adivinhar ações;
-3. capturar evidência/prints do cliente real para preflop min-raise/reopen após all-ins, stack/buy-in do stake alvo, rake rounding/timing, side-pot/odd-chip, sit-out e campos exatos do scraper/tablemap;
+1. evoluir o reconstrutor conservador de snapshots estáveis para uma **linha temporal de mão**, inferindo uma ação somente quando a sequência de evidências tiver interpretação única e mantendo `AMBIGUOUS` nos demais casos;
+2. capturar evidência/prints do cliente real para congelar layout de raw chairs, preflop min-raise/reopen após all-ins, stack/buy-in do stake alvo, rake rounding/timing, side-pot/odd-chip, sit-out e campos exatos do scraper/tablemap;
+3. medir o evaluator lookup no **Ryzen 9** com o benchmark versionado e só investir em tabela direta 6/7-card ou perfect hash se profiling mostrar retorno real;
 4. depois da evidência real, ligar logging somente leitura no build dedicado e provar em replays reais `OH6Plus snapshot → TableObservation → CanonicalState` com sequência/fingerprints idênticos offline;
-5. só então iniciar os primeiros benchmarks pequenos de abstração/solver para descobrir qual arquitetura compra mais força por CPU-hora no Ryzen 9.
+5. em paralelo, preparar os primeiros **microgames de abstração/solver**, sem ainda congelar sizings de cash real que dependam das capturas, para descobrir qual família de algoritmo compra mais força por CPU-hora.
