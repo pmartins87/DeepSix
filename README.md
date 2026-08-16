@@ -1,264 +1,128 @@
 # DeepSix
 
-DeepSix é o projeto de estratégia para **Poker Cash Game 6+ / Short Deck**, desenvolvido para obter a melhor força de jogo possível dentro de um orçamento computacional realista.
+DeepSix é o projeto de IA para **Poker Cash Game 6+ / Short Deck**, desenvolvido para obter a maior força possível dentro de um orçamento computacional realista.
+
+## Objetivo primário
+
+O alvo atual é:
+
+> **uma IA autônoma capaz de jogar sessões completas de 6+ dentro do nosso próprio simulador, com economia modelada a partir do GGPoker Short Deck e treinamento principal em um Ryzen 9.**
+
+O projeto não depende de automatizar um cliente real para ser considerado concluído. GGPoker é a referência econômica; KKPoker permanece apenas como material histórico/comparativo de fases anteriores.
+
+O contrato atual está em:
+
+- `docs/ROADMAP.md` — roadmap canônico completo até `READY FOR 6+ AUTONOMOUS SIMULATOR`;
+- `docs/SIMULATOR_TARGET_GGPOKER_ECONOMY_V1.md` — target/economia atual;
+- `deepsix_core/ggpoker_economy.py` — profile econômico versionado.
 
 ## Princípio central
 
-O objetivo **não é resolver o 6+ perfeitamente** nem provar equilíbrio exato do jogo completo.
+O objetivo não é resolver o jogo completo de forma exata. Queremos maximizar **força prática por CPU-hora**, sem desperdiçar capacidade de treino reaprendendo invariâncias que podem ser garantidas por construção.
 
-O objetivo é:
+O orçamento de referência é um **Ryzen 9 trabalhando continuamente por semanas ou meses**, com RAM/disco e pré-computação usados de maneira explícita e mensurada.
 
-> **construir a melhor estratégia que conseguirmos obter, validar e executar com segurança dentro das nossas possibilidades reais de hardware e tempo.**
+Cada aumento de complexidade precisa mostrar o que comprou em força, cobertura ou eficiência. Uma árvore maior não é promovida apenas por ser mais sofisticada.
 
-O orçamento de referência é **um Ryzen 9 trabalhando continuamente por semanas ou meses**, com armazenamento e pré-computação extensivos quando úteis, mas sem assumir clusters ou hardware de datacenter.
+## Arquitetura atual
 
-DeepSix é julgado por força prática, robustez e ganho por CPU-hora. Uma abstração menor e profundamente treinada pode superar uma árvore enorme e superficial. Invariâncias matemáticas devem ser garantidas por construção para que capacidade de treino não seja desperdiçada reaprendendo equivalências triviais.
+1. **DeepSix Core** — deck, evaluator, regras, legal actions, betting/full-hand state machines, pot/side-pot accounting, canonicalização e replay.
+2. **DeepSix Simulator** — ambiente multiagente 2..6 jogadores, chance, sessões, economia e self-play. Esta é a principal peça de ambiente ainda a concluir.
+3. **Trainer/Solver** — CFR/RM+/abstrações e qualquer método posterior que vença benchmarks reproduzíveis.
+4. **Economy** — profiles GGPoker versionados, rake/caps/BBJ e settlement.
+5. **Policy Runtime** — compilação/lookup determinístico da estratégia treinada.
+6. **Validation** — oracles exatos, fuzzing, invariance tests, held-out states, replay e certificação.
+7. **OpenHoldem6Plus** — trilha auxiliar já bastante desenvolvida para observação/replay; não está no caminho crítico do simulador.
 
-## Arquitetura
+## Estado atual
 
-1. **DeepSix Core** — regras, deck, evaluator, pot accounting, ação legal, canonicalização, reconstrução e utilidade.
-2. **Trainer/Solver** — CFR/regret/value/policy e demais técnicas que vencerem benchmarks reproduzíveis no orçamento real.
-3. **OpenHoldem6Plus** — fork exclusivo do OpenHoldem para observar a mesa e formar estado confiável. Não precisa preservar compatibilidade estratégica com Hold'em 52-card, AoF, Spin ou OFC.
-4. **Validation/Replay** — oracles independentes, fuzzing, replays, fingerprints, contratos cross-repo e auditorias de invariância.
+### Core matemático
 
-Quando um conceito legado do OpenHoldem não possui a mesma semântica em 6+, ele deve ser substituído, desabilitado ou marcado como incompatível — nunca reaproveitado apenas para aparentar compatibilidade.
+A fundação está fortemente gated:
 
-O roadmap canônico fica em `docs/ROADMAP.md`.
-
-## Estado atual — 16/08/2026
-
-A fundação matemática já é fortemente gated; o OpenHoldem6Plus possui boundary real C++ ↔ Python; a reconstrução temporal conserva incerteza em vez de inventar ações; a economia possui rake exato configurável sem arredondamento implícito; e o laboratório de solver já permite comparar **largura de ação, primeira camada de raise, abstração privada, counterfactual features, curvas de convergência e algoritmo de regrets sob um oracle exato comum**.
-
-### Regras atualmente congeladas
-
-- deck com **36 cartas**, apenas 6..A;
-- mesas até 6-handed;
-- estrutura ante-based, sem modelar SB/BB como forced bets estratégicos;
-- modelo atual de forced bets: A nos demais dealt players e **2A totais no Dealer/Button**;
-- primeiro jogador à esquerda do Dealer age primeiro em todas as streets;
-- No-Limit;
+- 36 cartas, ranks 6..A;
+- 81 starting-hand classes / 630 combos;
+- evaluator 5/6/7 cartas;
+- A6789;
 - Flush > Full House;
-- A6789 é a menor sequência;
-- full raise usa incremento pelo menos igual ao bet/raise anterior da street no modelo estrutural.
+- exhaustive audit das 376.992 mãos de cinco cartas;
+- oracle externo PokerKit;
+- evaluator C++ baseline + lookup exato;
+- equity HU exata;
+- legal actions `FOLD/CHECK/CALL/RAISE_TO`;
+- betting-round e full-hand state machines;
+- all-ins, side pots e showdown;
+- suit/hole/flop/chair canonicalization;
+- deterministic replay/fingerprints;
+- hand fuzzing.
 
-A documentação pública de rake do 6+ usa terminologia que ainda exige confirmação contra Hand Review/client. O Core não converte silenciosamente unidades ambíguas nem inventa rounding/timing. Essas pendências permanecem explicitamente abertas em `docs/GAME_SPEC_KKPOKER_V0.md` e `docs/RAKE_MODEL_V1.md`.
+### Economia GGPoker
 
-## Core matemático
+`ggpoker_shortdeck_cash_2026-08-16_v1` codifica a tabela pública atual usada como referência do simulador:
 
-Já existem e são testados:
+- **5% rake**;
+- nove stakes publicadas de $0.02 a $10;
+- default buy-ins;
+- caps distintos para 2 / 3 / 4 / 5+ jogadores;
+- high-stakes caps publicados em BB convertidos exatamente por stake;
+- Short Deck BBJ separado: **1 ante quando o pot alcança 100 antes**.
 
-- codec compacto 0..35 e rejeição obrigatória de ranks 2..5 na fronteira legada;
-- **81 starting-hand classes cobrindo exatamente 630 combos**;
-- evaluator de 5 cartas e best-of-5 para 5/6/7 cartas;
-- A6789 e ranking Short Deck;
-- enumeração de **todas as 376.992 mãos de cinco cartas** contra distribuição analítica;
-- oracle externo PokerKit pinado;
-- equity HU exata para validação;
-- pot e side-pot accounting;
-- legal-action boundary `FOLD/CHECK/CALL/RAISE_TO`;
-- betting-round state machine No-Limit com full raises e short all-ins;
-- full-hand state machine `forced bets -> preflop -> flop -> turn -> river -> showdown/fold`;
-- runout automático quando não há mais decisão de betting;
-- showdown bruto exato, mantendo splits como `Fraction` até odd-chip ser observado;
-- canonicalização de hole-card order, flop order, 24 permutações globais de naipes e chairs relativos ao Dealer;
-- `ReplayFrame`, `DecisionToken`, fingerprints e detecção de corrupção;
-- fuzzing determinístico de mãos completas.
+O profile não inventa no-flop/small-pot exemptions não publicadas na tabela usada e não inventa client rounding. Esses detalhes permanecem explicitamente versionados no simulator contract.
 
-## Evaluator nativo
+### Laboratório de solver
 
-Há dois caminhos C++ gated:
+Já existem:
 
-- `ShortDeckEvaluator`, baseline auditável;
-- `FastShortDeckEvaluator`, lookup exato de todas as combinações de cinco cartas.
+- Kuhn CFR baseline;
+- Short Deck river microgames;
+- exact brute-force BR para árvores pequenas;
+- Dynamic Exact Best Response;
+- 1..4 bet sizes;
+- one-raise e multi-size + one-raise;
+- private-state bucketed CFR;
+- identity/equity/category/single abstractions;
+- nutness/blocker features;
+- CFV k-medoids;
+- River Benchmark Battery v3;
+- State-Abstraction Convergence v1;
+- synchronous Regret-Matching+;
+- CFR vs RM+ benchmarks;
+- Ryzen Benchmark Protocol v2 + SHA-256 analyzer/Pareto.
 
-O CI exige paridade do baseline C++ contra Python em todas as 376.992 mãos de cinco cartas e amostras determinísticas de seis/sete cartas. O lookup é comparado contra o baseline em todas as cinco-cartas + 10.000 seis-cartas + 20.000 sete-cartas.
+O próximo benchmark estratégico relevante continua sendo:
 
-Benchmarks do runner CI são apenas informativos e **não são extrapolados para o Ryzen 9**.
+```text
+python tools/run_ryzen_benchmark_suite.py --profile engineering
+```
+
+## O que ainda separa o projeto da IA final
+
+O trabalho pesado restante é transformar o core/laboratório em uma política ampla:
+
+```text
+DeepSixSimulator 2..6
+ -> escolher abstraction/solver no Ryzen
+ -> blueprint HU multi-street
+ -> expansão 3-way até 6-way
+ -> treino longo/refinement
+ -> population/exploit overlay opcional
+ -> policy compiler/runtime
+ -> autonomous simulator closed loop
+ -> certificação
+```
+
+O roadmap detalha todos os gates e subtarefas.
 
 ## OpenHoldem6Plus
 
-O repositório operacional `pmartins87/myoh_private` possui a branch dedicada `deepsix_6plus`.
-
-Já estão implementados/gated:
-
-- migration map de premissas 52-card/1326/2652/prwin/SB-BB/dealposition;
-- `ShortDeckRules` C++ independente;
-- `TableObservation` + validator + JSON canônico;
-- contrato C++ -> Python/Core com igualdade byte-a-byte/fingerprints;
-- `RawTableSnapshot` read-only sobre `CTableState`/`CPlayer`/`Card`;
-- schema raw v2 preservando `hero_myturnbits` e `hero_sitting_in` como **evidência**, não decisão;
-- parser/espelho Python do snapshot bruto;
-- workflow próprio da branch 6+;
-- contrato cross-repo que compila o boundary C++ pinado e exige compatibilidade exata no Core.
-
-**Nenhuma ação automática está habilitada no OpenHoldem6Plus.** A linha permanece deliberadamente `observe/replay-first` durante construção e validação.
-
-## Reconstrução temporal conservadora
-
-A cadeia atual é:
-
-```text
-RawTableSnapshot JSON
-  -> validation
-  -> ProjectedSnapshot
-  -> StableSnapshotGate
-  -> RawEvidenceTimeline
-```
-
-`RawObservationPipeline` compõe esse caminho end-to-end.
-
-A timeline só infere uma ação quando o delta observado possui interpretação monetária única. Atualmente consegue inferir `CALL`, short all-in `CALL` e `RAISE_TO` exatos. Ela **não** inventa `CHECK` pelo desaparecimento de botões nem `FOLD` por mera mudança de flags; estados insuficientes permanecem `AMBIGUOUS`.
-
-Um hand epoch só é estabelecido quando existe baseline exato de forced bets. Entre mãos, a confirmação exige regressão para preflop + mudança do Dealer + novo baseline exato. Uma ambiguidade invalida `complete_from_hand_start` até um novo início confiável ser provado.
-
-Detalhes: `docs/RAW_EVIDENCE_TIMELINE_V1.md` e `docs/RAW_HAND_START_EVIDENCE_V1.md`.
-
-## Economia / rake
-
-`deepsix_core.rake` usa `Fraction` e separa explicitamente:
-
-1. elegibilidade/isenções;
-2. percentual/cap exatos;
-3. **rounding do cliente ainda não comprovado**.
-
-Rake variável não é simplesmente inserido em um microgame HU e chamado de exploitability zero-sum. Quando a retirada depende da trajetória/pot, a soma das utilidades varia; a metodologia econômica será tratada explicitamente antes do blueprint principal.
-
-## Action abstraction
-
-A progressão do laboratório é incremental:
-
-- river microgame Short Deck com ranges/evaluator reais;
-- 1..4 sizings iniciais sem raise;
-- one-raise com bet fixo + raise-to fixo;
-- multi-size + one-raise;
-- exact BR enumerativa em árvores pequenas;
-- **Dynamic Exact Best Response** por programação dinâmica, gated contra o enumerador;
-- linha escalável de **1..4 sizings + um raise** usando exact DP exploitability.
-
-Isso permite enriquecer a árvore sem deixar o custo do oracle crescer exponencialmente com `(1+S)6^S` planos puros por mão.
-
-## Private-state abstraction
-
-`BucketedRiverCFR` permite que combos exatos compartilhem um infoset, mas a política resultante é expandida novamente para cada combo e avaliada pela **best response exata do jogo não abstraído**.
-
-Famílias atuais:
-
-- `identity` — uma estratégia por combo exato;
-- `conditional-equity quantiles` — equity river blocker-aware;
-- `feature_borda_quantile` — combina range equity, universal equity, nutness e blocker pressure;
-- `cfv_kmedoids` — agrupa vetores de counterfactual action values sob reference policy uniforme;
-- `showdown_category`;
-- `single` — compressão extrema deliberada.
-
-As features exatas de nutness/blockers enumeram o universo compatível e preservam pesos do range. Os CFVs perguntam diretamente quanto vale cada ação para uma mão em cada infoset da árvore river; eles são normalizados pelo pot e agrupados com k-medoids determinístico.
-
-O identity bucket continua gated para reproduzir exatamente o CFR não abstraído sob as mesmas iterações. Toda família comprimida é julgada no jogo original pela Dynamic Exact BR.
-
-Detalhes: `docs/RIVER_STATE_ABSTRACTION_V1.md`, `docs/RIVER_HAND_FEATURES_V1.md` e `docs/RIVER_COUNTERFACTUAL_FEATURES_V1.md`.
-
-## River Benchmark Battery e convergência
-
-Para evitar escolher uma abstração porque funcionou numa única fixture, existe uma bateria determinística com seis texturas Short Deck. Em cada board são enumerados todos os **465 combos exatos possíveis** das 31 cartas restantes e ranges sintéticos são amostrados mecanicamente em quantis de `HandValue`, com offsets distintos para P0/P1.
-
-A **State-Abstraction Battery v3** compara as famílias acima nas mesmas larguras e mede, por método e textura:
-
-- nós e action slots;
-- throughput de CFR;
-- exact exploitability/pot;
-- média, mediana e pior caso;
-- **tempo de construção do mapping** separado do treino.
-
-`benchmark_river_state_abstraction_convergence.py` complementa essa fotografia final treinando cada mapping cumulativamente em vários checkpoints. Em cada ponto registra cumulative wall-clock, exploitability/pot e estrutura. Assim, igual número de iterações deixa de ser confundido com igual custo computacional.
-
-O analyzer constrói uma fronteira por checkpoint usando erro médio, pior caso, cumulative training seconds e nós. O mapping-build cost continua separado por ser um custo one-shot/precompute.
-
-Esses ranges são deliberadamente sintéticos: servem para engenharia comparativa antes de existirem distribuições reais, não para estimar população ou win rate.
-
-Detalhes: `docs/RIVER_BENCHMARK_BATTERY_V1.md`, `docs/RIVER_COUNTERFACTUAL_FEATURES_V1.md` e `docs/RIVER_STATE_ABSTRACTION_CONVERGENCE_V1.md`.
-
-## Solver algorithms
-
-Além do vanilla synchronous CFR, existe agora um **synchronous Regret-Matching+ (RM+)**:
-
-- regrets cumulativos truncados em zero;
-- full-chance síncrono;
-- average strategy com delay e peso uniforme ou linear;
-- determinismo e resumibilidade obrigatórios;
-- exploitability medida pelo mesmo Dynamic Exact BR.
-
-Não existe gate artificial dizendo que RM+ precisa derrotar CFR. O código passa se estiver correto e convergir; qual algoritmo compra mais redução de erro por CPU-hora é decidido pela bateria `benchmark_river_solver_algorithms.py`.
-
-Detalhes: `docs/RIVER_RMPLUS_V1.md`.
-
-## Protocolo Ryzen 9
-
-`tools/run_ryzen_benchmark_suite.py` transforma uma execução local em evidência reproduzível. Ele registra:
-
-- commit Git;
-- working tree clean/dirty;
-- plataforma/Python/CPU lógico;
-- profile e parâmetros;
-- comandos exatos;
-- wall time;
-- outputs/logs e seus SHA-256.
-
-Perfis: `smoke`, `engineering` e `long`. O primeiro benchmark útil para decisão é `engineering`; `smoke` prova somente wiring.
-
-A suíte consolida **cinco** linhas sob uma pasta/manifest único:
-
-1. action abstraction;
-2. scalable multi-size + one-raise;
-3. state-abstraction final-budget battery;
-4. state-abstraction convergence;
-5. CFR vs RM+.
-
-`analyze_ryzen_benchmark_suite.py` primeiro verifica os SHA-256 e só então calcula comparações/Pareto dentro de espaços realmente comparáveis. O custo one-shot de construir mappings é reportado separadamente do throughput do CFR.
-
-Detalhes: `docs/RYZEN_BENCHMARK_PROTOCOL_V1.md`, `docs/RYZEN_ANALYZER_V1.md` e `docs/RIVER_STATE_ABSTRACTION_CONVERGENCE_V1.md`.
-
-## Validação
-
-O CI principal exige simultaneamente:
-
-- toda a suíte Python/Core;
-- exhaustive five-card audit;
-- baseline/fast evaluator C++ parity;
-- ShortDeckRules C++;
-- TableObservation validator/JSON C++;
-- C++ -> Python canonical observation/fingerprints;
-- raw reconstruction/timeline/hand-start/rake;
-- action/state/solver exact-oracle gates;
-- gates de nutness/blocker/CFV;
-- testes do protocolo/analyzer Ryzen;
-- smokes da state-abstraction battery e da convergence battery;
-- demais smokes dos benchmarks versionados.
-
-Falhas de teste são tratadas como informação. Nesta fase, por exemplo, o evaluator corretamente expôs uma fixture que havia sido classificada intuitivamente como high-card mas formava **A6789**, e a bateria também mostrou que exigir três HandCategories em todo range era um invariant errado para boards double-paired; o gate foi corrigido para refletir diversidade de `HandValue`, não relaxado para fabricar PASS.
-
-## Próximos gates
-
-1. Executar `python tools/run_ryzen_benchmark_suite.py --profile engineering` no **Ryzen 9**, agora com state-abstraction v3 + convergence v1, e comparar redução de erro por custo real.
-2. Capturar evidência real do cliente 6+ para congelar chair layout, timing de `Pot/_bet/_balance`, CHECK/FOLD, hand boundaries, min-raise/reopen, side pots, sit-out, rake rounding e payouts.
-3. Medir CFV k-medoids contra equity-only e equity+nutness+blockers ao longo dos checkpoints; nenhuma família é promovida por aparência ou smoke de CI.
-4. Se os dados mostrarem que checkpoints de iteração ainda escondem tradeoffs importantes, adicionar uma bateria posterior de **equal-wall-clock budgets**.
-5. Se CFV mostrar sinal útil, testar reference policies congeladas mais informativas e/ou distâncias aprendidas, sempre contra identity e Dynamic Exact BR.
-6. Usar os resultados para decidir se a próxima complexidade deve ir para multiple raise sizes/re-raises, mais estados ou o primeiro protótipo multi-street.
-7. Só depois iniciar treino longo de blueprint, evitando gastar meses de CPU sobre uma representação ou abstração ainda não comprovada.
+O trabalho realizado não foi descartado. Já existem boundary C++/Python, raw snapshots, validators, conservative temporal reconstruction e contratos cross-repo. Essa trilha pode voltar a ser útil para estudo/replay/validação externa, mas **não é requisito para finalizar a IA de simulador**.
 
 ## Filosofia de engenharia
 
-### Correção antes de escala
-
-Uma run de meses sobre uma representação errada é pior que uma run curta sobre um modelo correto.
-
-### Eficiência representa força
-
-Capacidade economizada deve ser convertida, quando útil, em mais conhecimento estratégico: mais estados, melhores abstrações, mais iterações, maior capacidade ou refinamento dirigido.
-
-### Evidência acima de intuição
-
-Arquiteturas e abstrações só são promovidas por testes reproduzíveis. Uma V2 mais elegante não vence por parecer superior; um resultado surpreendente também não é aceito sem auditoria de viés, bug ou desperdício.
-
-### Melhor possível, não perfeito
-
-Não existe gate artificial de “GTO completo”. O roadmap continua enquanto houver forma mensurável de converter orçamento disponível em estratégia melhor.
+- correção antes de escala;
+- evidência acima de intuição;
+- invariâncias garantidas por construção;
+- benchmark por custo real, não por aparência;
+- estratégia-base separada da exploração;
+- nenhuma run de meses antes de congelar state/action/utility suficientemente bem;
+- nenhuma tecnologia é promovida apenas porque é mais nova ou mais complexa.
