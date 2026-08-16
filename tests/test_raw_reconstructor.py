@@ -11,7 +11,13 @@ from deepsix_core.raw_reconstructor import (
     classify_raw_transition,
     project_raw_snapshot,
 )
-from deepsix_core.raw_snapshot import raw_snapshot_from_dict
+from deepsix_core.raw_snapshot import (
+    RAW_MYTURN_CALL,
+    RAW_MYTURN_CHECK,
+    RAW_MYTURN_FOLD,
+    RAW_MYTURN_RAISE,
+    raw_snapshot_from_dict,
+)
 from deepsix_core.state import Street
 
 
@@ -25,7 +31,14 @@ def raw_card(*, any_card=False, card_back=False, known=False, rank=-1, suit=-1):
     }
 
 
-def payload(*, board=(), dealer=5, hero=2):
+def payload(
+    *,
+    board=(),
+    dealer=5,
+    hero=2,
+    hero_myturnbits=0,
+    hero_sitting_in=True,
+):
     raw_board = [raw_card() for _ in range(5)]
     for index, (rank, suit) in enumerate(board):
         raw_board[index] = raw_card(any_card=True, known=True, rank=rank, suit=suit)
@@ -61,8 +74,10 @@ def payload(*, board=(), dealer=5, hero=2):
         "community_card_count": len(board),
         "dealer_chair": dealer,
         "hero_chair": hero,
+        "hero_myturnbits": hero_myturnbits,
+        "hero_sitting_in": hero_sitting_in,
         "pots": ["0.8"] + ["0"] * 9,
-        "schema_version": 1,
+        "schema_version": 2,
         "seats": seats,
     }
 
@@ -89,7 +104,9 @@ class RawReconstructionBoundaryTests(unittest.TestCase):
             MoneyScale("0").to_units("1")
 
     def test_explicit_noncontiguous_chair_mapping_and_money_projection(self):
-        source = payload()
+        source = payload(
+            hero_myturnbits=RAW_MYTURN_FOLD | RAW_MYTURN_CALL | RAW_MYTURN_RAISE
+        )
         source["seats"][2]["hole_cards"] = [
             raw_card(any_card=True, known=True, rank=14, suit=0),
             raw_card(any_card=True, known=True, rank=13, suit=1),
@@ -100,6 +117,11 @@ class RawReconstructionBoundaryTests(unittest.TestCase):
         self.assertEqual(projected.street, Street.PREFLOP)
         self.assertEqual(projected.dealer_seat, 1)
         self.assertEqual(projected.hero_seat, 0)
+        self.assertEqual(
+            projected.hero_myturnbits,
+            RAW_MYTURN_FOLD | RAW_MYTURN_CALL | RAW_MYTURN_RAISE,
+        )
+        self.assertTrue(projected.hero_sitting_in)
         self.assertEqual(projected.seats[0].raw_chair, 2)
         self.assertEqual(projected.seats[0].balance, 98)
         self.assertEqual(projected.seats[0].current_bet, 2)
@@ -116,9 +138,10 @@ class RawReconstructionBoundaryTests(unittest.TestCase):
         with self.assertRaises(ReconstructionError):
             self.project(payload(hero=4))
 
-    def test_observer_mode_hero_maps_to_none(self):
-        projected = self.project(payload(hero=-1))
+    def test_observer_mode_hero_maps_to_none_and_preserves_sitting_state(self):
+        projected = self.project(payload(hero=-1, hero_sitting_in=False))
         self.assertIsNone(projected.hero_seat)
+        self.assertFalse(projected.hero_sitting_in)
 
     def test_board_count_requires_known_revealed_cards(self):
         source = payload(board=((6, 0), (7, 1), (8, 2)))
@@ -136,6 +159,21 @@ class RawReconstructionBoundaryTests(unittest.TestCase):
         self.assertEqual(transition.kind, RawTransitionKind.SAME_STREET_DELTA)
         self.assertNotIn("raise", transition.reason.lower())
         self.assertNotIn("call", transition.reason.lower())
+
+    def test_visible_button_delta_is_raw_evidence_not_inferred_action(self):
+        first = self.project(payload(hero_myturnbits=0))
+        second = self.project(
+            payload(hero_myturnbits=RAW_MYTURN_CHECK | RAW_MYTURN_RAISE)
+        )
+        transition = classify_raw_transition(first, second)
+        self.assertEqual(transition.kind, RawTransitionKind.SAME_STREET_DELTA)
+        self.assertEqual(
+            second.hero_myturnbits,
+            RAW_MYTURN_CHECK | RAW_MYTURN_RAISE,
+        )
+        self.assertNotIn("bet", transition.reason.lower())
+        self.assertNotIn("raise", transition.reason.lower())
+        self.assertNotIn("check", transition.reason.lower())
 
     def test_exact_forward_street_preserves_board_prefix(self):
         preflop = self.project(payload())
@@ -189,6 +227,16 @@ class RawReconstructionBoundaryTests(unittest.TestCase):
         b = self.project(changed_source)
         self.assertIsNone(gate.push(b))
         self.assertEqual(gate.push(b), b)
+
+    def test_stability_gate_requires_visible_turn_bits_to_stabilize(self):
+        gate = StableSnapshotGate(required_identical=2)
+        no_turn = self.project(payload(hero_myturnbits=0))
+        hero_turn = self.project(
+            payload(hero_myturnbits=RAW_MYTURN_FOLD | RAW_MYTURN_CALL)
+        )
+        self.assertIsNone(gate.push(no_turn))
+        self.assertIsNone(gate.push(hero_turn))
+        self.assertEqual(gate.push(hero_turn), hero_turn)
 
 
 if __name__ == "__main__":
