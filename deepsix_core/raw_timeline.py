@@ -1,11 +1,15 @@
 """Conservative temporal inference over stable OH6Plus projected snapshots.
 
 The raw scraper boundary intentionally treats each frame as evidence rather than
-an action log.  This module adds the first temporal layer above that boundary:
+an action log. This module adds the first temporal layer above that boundary:
 it may label a betting action only when the *visible accounting delta itself*
 has exactly one legal poker interpretation under deliberately strict guards.
 
-V1 is intentionally narrow:
+The timeline can also prove a hand start when the caller supplies an explicit
+ante and the snapshot matches the exact pre-action forced-bet baseline defined
+in :mod:`deepsix_core.raw_hand_start`. A simple board reset is never enough.
+
+Action inference remains intentionally narrow:
 
 * one and only one seat may change money/commitment for an inferred action;
 * that seat's balance loss must exactly equal its current-bet increase;
@@ -19,9 +23,8 @@ V1 is intentionally narrow:
 * folds are never inferred from an ``active`` flag transition alone;
 * ambiguous evidence stays ambiguous.
 
-This is a local evidence classifier, not yet a complete hand-history
-reconstructor.  In particular it does not claim that a baseline snapshot is the
-start of a hand, and it does not confirm a new hand from a board reset alone.
+A timeline configured without ``ante_units`` can still perform safe local
+money-action inference, but it never claims complete history from hand start.
 """
 
 from __future__ import annotations
@@ -29,6 +32,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from .raw_hand_start import (
+    HandStartEvidenceError,
+    confirm_new_hand_from_exact_baseline,
+    exact_forced_bet_baseline,
+)
 from .raw_reconstructor import (
     ProjectedSeat,
     ProjectedSnapshot,
@@ -45,6 +53,7 @@ class TimelineInferenceError(ValueError):
 
 class TimelineEventKind(str, Enum):
     BASELINE = "baseline"
+    HAND_START = "hand_start"
     ACTION = "action"
     STREET_ADVANCE = "street_advance"
     HAND_BOUNDARY_CANDIDATE = "hand_boundary_candidate"
@@ -64,10 +73,13 @@ class InferredAction:
     resulting_actor_bet: int
     all_in: bool
     reason: str
+    hand_index: int | None = None
 
     def validate(self) -> None:
         if self.seq < 0:
             raise TimelineInferenceError("inferred action seq must be non-negative")
+        if self.hand_index is not None and self.hand_index < 0:
+            raise TimelineInferenceError("hand_index must be non-negative when known")
         if self.actor_seat < 0 or self.actor_seat >= 6:
             raise TimelineInferenceError("inferred actor seat must be in 0..5")
         if self.paid <= 0:
@@ -84,7 +96,7 @@ class InferredAction:
                 raise TimelineInferenceError("call cannot carry amount_to")
         else:
             raise TimelineInferenceError(
-                "raw timeline v1 only infers CALL or RAISE_TO"
+                "raw timeline only infers CALL or RAISE_TO"
             )
 
 
@@ -95,12 +107,17 @@ class TimelineEvent:
     snapshot: ProjectedSnapshot
     action: InferredAction | None = None
     reason: str = ""
+    hand_index: int | None = None
 
     def validate(self) -> None:
+        if self.hand_index is not None and self.hand_index < 0:
+            raise TimelineInferenceError("event hand_index must be non-negative")
         if self.kind == TimelineEventKind.ACTION:
             if self.action is None:
                 raise TimelineInferenceError("ACTION event requires inferred action")
             self.action.validate()
+            if self.action.hand_index != self.hand_index:
+                raise TimelineInferenceError("event/action hand_index mismatch")
         elif self.action is not None:
             raise TimelineInferenceError("non-ACTION event cannot carry inferred action")
 
@@ -109,16 +126,35 @@ class TimelineEvent:
 class RawEvidenceTimeline:
     """Append-only timeline over already-stable projected snapshots.
 
-    The first snapshot is a baseline only.  Subsequent local actions can be
-    inferred, but ``complete_from_hand_start`` remains false until a future
-    hand-boundary confirmer can prove that the observed baseline is the actual
-    start of a hand.
+    If ``ante_units`` is supplied, an exact forced-bet baseline can establish a
+    trusted hand start. Once established, ``complete_from_hand_start`` remains
+    true only while every subsequent transition is either uniquely inferred or
+    a structurally valid street advance. Any ambiguity taints completeness until
+    another exact hand start is proven.
     """
 
+    ante_units: int | None = None
+    dealer_total_antes: int = 2
     _last: ProjectedSnapshot | None = None
     _next_action_seq: int = 0
     _events: list[TimelineEvent] = field(default_factory=list)
     complete_from_hand_start: bool = False
+    current_hand_index: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.ante_units is not None:
+            if (
+                isinstance(self.ante_units, bool)
+                or not isinstance(self.ante_units, int)
+                or self.ante_units <= 0
+            ):
+                raise TimelineInferenceError("ante_units must be a positive integer")
+        if (
+            isinstance(self.dealer_total_antes, bool)
+            or not isinstance(self.dealer_total_antes, int)
+            or self.dealer_total_antes < 2
+        ):
+            raise TimelineInferenceError("dealer_total_antes must be an integer >= 2")
 
     @property
     def events(self) -> tuple[TimelineEvent, ...]:
@@ -132,14 +168,44 @@ class RawEvidenceTimeline:
             if event.action is not None
         )
 
+    def _exact_baseline_reason(self, snapshot: ProjectedSnapshot) -> tuple[bool, str]:
+        if self.ante_units is None:
+            return False, "ante configuration unavailable"
+        try:
+            evidence = exact_forced_bet_baseline(
+                snapshot,
+                ante=self.ante_units,
+                dealer_total_antes=self.dealer_total_antes,
+            )
+        except HandStartEvidenceError as exc:
+            raise TimelineInferenceError(str(exc)) from exc
+        return evidence.matched, evidence.reason
+
     def push(self, snapshot: ProjectedSnapshot) -> TimelineEvent | None:
         if self._last is None:
-            event = TimelineEvent(
-                kind=TimelineEventKind.BASELINE,
-                transition=None,
-                snapshot=snapshot,
-                reason="first stable snapshot is evidence baseline, not proven hand start",
-            )
+            matched, reason = self._exact_baseline_reason(snapshot)
+            if matched:
+                self.current_hand_index = 0
+                self._next_action_seq = 0
+                self.complete_from_hand_start = True
+                event = TimelineEvent(
+                    kind=TimelineEventKind.HAND_START,
+                    transition=None,
+                    snapshot=snapshot,
+                    reason=reason,
+                    hand_index=self.current_hand_index,
+                )
+            else:
+                event = TimelineEvent(
+                    kind=TimelineEventKind.BASELINE,
+                    transition=None,
+                    snapshot=snapshot,
+                    reason=(
+                        "first stable snapshot is evidence baseline, not proven hand start: "
+                        + reason
+                    ),
+                    hand_index=self.current_hand_index,
+                )
             event.validate()
             self._events.append(event)
             self._last = snapshot
@@ -155,6 +221,7 @@ class RawEvidenceTimeline:
                 self._last,
                 snapshot,
                 seq=self._next_action_seq,
+                hand_index=self.current_hand_index,
             )
             if action is not None:
                 event = TimelineEvent(
@@ -163,6 +230,7 @@ class RawEvidenceTimeline:
                     snapshot=snapshot,
                     action=action,
                     reason=reason,
+                    hand_index=self.current_hand_index,
                 )
                 self._next_action_seq += 1
             else:
@@ -171,6 +239,7 @@ class RawEvidenceTimeline:
                     transition=transition,
                     snapshot=snapshot,
                     reason=reason,
+                    hand_index=self.current_hand_index,
                 )
                 self.complete_from_hand_start = False
         elif transition.kind == RawTransitionKind.FORWARD_STREET:
@@ -179,24 +248,58 @@ class RawEvidenceTimeline:
                 transition=transition,
                 snapshot=snapshot,
                 reason=transition.reason,
+                hand_index=self.current_hand_index,
             )
         elif transition.kind == RawTransitionKind.HAND_BOUNDARY_CANDIDATE:
-            event = TimelineEvent(
-                kind=TimelineEventKind.HAND_BOUNDARY_CANDIDATE,
-                transition=transition,
-                snapshot=snapshot,
-                reason=(
-                    "preflop regression is only a candidate; v1 does not reset action "
-                    "sequence or claim a new hand without stronger evidence"
-                ),
-            )
-            self.complete_from_hand_start = False
+            evidence = None
+            if self.ante_units is not None:
+                try:
+                    evidence = confirm_new_hand_from_exact_baseline(
+                        self._last,
+                        snapshot,
+                        ante=self.ante_units,
+                        dealer_total_antes=self.dealer_total_antes,
+                    )
+                except HandStartEvidenceError as exc:
+                    raise TimelineInferenceError(str(exc)) from exc
+            if evidence is not None and evidence.matched:
+                self.current_hand_index = (
+                    0 if self.current_hand_index is None else self.current_hand_index + 1
+                )
+                self._next_action_seq = 0
+                self.complete_from_hand_start = True
+                event = TimelineEvent(
+                    kind=TimelineEventKind.HAND_START,
+                    transition=transition,
+                    snapshot=snapshot,
+                    reason=evidence.reason,
+                    hand_index=self.current_hand_index,
+                )
+            else:
+                reason = (
+                    evidence.reason
+                    if evidence is not None
+                    else "ante configuration unavailable for exact hand-start proof"
+                )
+                event = TimelineEvent(
+                    kind=TimelineEventKind.HAND_BOUNDARY_CANDIDATE,
+                    transition=transition,
+                    snapshot=snapshot,
+                    reason=(
+                        "preflop regression remains only a candidate; action sequence "
+                        "is not reset: "
+                        + reason
+                    ),
+                    hand_index=self.current_hand_index,
+                )
+                self.complete_from_hand_start = False
         else:
             event = TimelineEvent(
                 kind=TimelineEventKind.AMBIGUOUS,
                 transition=transition,
                 snapshot=snapshot,
                 reason=transition.reason,
+                hand_index=self.current_hand_index,
             )
             self.complete_from_hand_start = False
 
@@ -222,9 +325,9 @@ def _seat_nonmoney_action_key(seat: ProjectedSeat) -> tuple:
     """Action-compatible non-money fields.
 
     ``all_in`` may legitimately become true as the result of a call/raise.
-    ``active`` is required to stay true because v1 refuses to combine a money
-    action with a simultaneous fold/sit-out interpretation. ``has_any_cards``
-    must remain stable for the same reason.
+    ``active`` is required to stay true because the timeline refuses to combine
+    a money action with a simultaneous fold/sit-out interpretation.
+    ``has_any_cards`` must remain stable for the same reason.
     """
     return (seat.active, seat.has_any_cards)
 
@@ -234,10 +337,13 @@ def infer_unique_money_action(
     current: ProjectedSnapshot,
     *,
     seq: int = 0,
+    hand_index: int | None = None,
 ) -> tuple[InferredAction | None, str]:
     """Infer CALL/RAISE_TO only from an exact, single-seat accounting delta."""
     if seq < 0:
         raise TimelineInferenceError("action seq must be non-negative")
+    if hand_index is not None and hand_index < 0:
+        raise TimelineInferenceError("hand_index must be non-negative when known")
 
     transition = classify_raw_transition(previous, current)
     if transition.kind != RawTransitionKind.SAME_STREET_DELTA:
@@ -272,8 +378,6 @@ def infer_unique_money_action(
         if money_before != money_after:
             changed_money.append(before.seat)
         elif before.all_in != after.all_in:
-            # An all-in flag change without the exact money movement that caused
-            # it is not enough evidence to infer an action.
             return None, f"seat {before.seat} all-in flag changed without money delta"
 
     if len(changed_money) != 1:
@@ -345,6 +449,7 @@ def infer_unique_money_action(
         resulting_actor_bet=new_bet,
         all_in=after.all_in,
         reason=reason,
+        hand_index=hand_index,
     )
     action.validate()
     return action, reason
