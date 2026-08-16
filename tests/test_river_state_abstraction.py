@@ -30,14 +30,14 @@ def config():
         bet_sizes=(4, 8),
         raise_to=14,
         p0_range=(
-            RangeHand((c("9c"), c("7c"))),
+            RangeHand((c("Ts"), c("9c"))),
             RangeHand((c("Tc"), c("7d"))),
             RangeHand((c("Kc"), c("7h"))),
             RangeHand((c("Kc"), c("9s"))),
             RangeHand((c("Jc"), c("Tc"))),
         ),
         p1_range=(
-            RangeHand((c("9h"), c("7s"))),
+            RangeHand((c("Td"), c("9h"))),
             RangeHand((c("Th"), c("7s"))),
             RangeHand((c("Kh"), c("7c"))),
             RangeHand((c("Kh"), c("9d"))),
@@ -79,12 +79,12 @@ class RiverStateAbstractionTests(unittest.TestCase):
     def test_showdown_category_bucket_merges_distinct_same_category_hands(self):
         cfg = config()
         mapping = showdown_category_bucket_map(cfg)
-        low_high = cfg.p0_range[0].canonical_cards()
-        high_high = cfg.p0_range[1].canonical_cards()
-        self.assertNotEqual(low_high, high_high)
+        high_a = cfg.p0_range[0].canonical_cards()
+        high_b = cfg.p0_range[1].canonical_cards()
+        self.assertNotEqual(high_a, high_b)
         self.assertEqual(
-            mapping.bucket_for(0, low_high),
-            mapping.bucket_for(0, high_high),
+            mapping.bucket_for(0, high_a),
+            mapping.bucket_for(0, high_b),
         )
         self.assertLess(mapping.bucket_count(0), len(cfg.p0_range))
 
@@ -97,7 +97,7 @@ class RiverStateAbstractionTests(unittest.TestCase):
         self.assertTrue(all(0.0 <= value <= 1.0 for value in values))
         self.assertGreater(max(values), min(values))
         # The Broadway straight must have at least as much showdown equity as
-        # the weakest high-card hand in this fixed river range.
+        # a high-card hand in this fixed river range.
         self.assertGreaterEqual(values[-1], values[0])
 
     def test_equity_quantiles_are_deterministic_and_respect_requested_count(self):
