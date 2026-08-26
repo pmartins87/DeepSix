@@ -1,5 +1,14 @@
 """Autonomous Short Deck simulator package for DeepSix."""
 
+from .api import (
+    SIMULATOR_OBSERVATION_SCHEMA_VERSION,
+    DeepSixEnv,
+    SimulatorResetConfig,
+    SimulatorStepResult,
+    observation_canonical_json,
+    observation_fingerprint,
+    observation_to_dict,
+)
 from .environment import (
     AgentPolicy,
     DeepSixTable,
@@ -37,9 +46,11 @@ from .settlement import (
 __all__ = [
     "AgentPolicy",
     "DEFAULT_SIMULATOR_RULES",
+    "DeepSixEnv",
     "DeepSixTable",
     "HouseDeductions",
     "PublicPlayerState",
+    "SIMULATOR_OBSERVATION_SCHEMA_VERSION",
     "SIMULATOR_RULES_VERSION",
     "SIMULATOR_SETTLEMENT_VERSION",
     "SIMULATOR_TRANSCRIPT_SCHEMA_VERSION",
@@ -50,12 +61,17 @@ __all__ = [
     "SimulatorHandTranscript",
     "SimulatorObservation",
     "SimulatorReplayError",
+    "SimulatorResetConfig",
     "SimulatorRulesError",
     "SimulatorRulesProfile",
     "SimulatorSettlement",
     "SimulatorSettlementError",
+    "SimulatorStepResult",
     "check_call_policy",
     "min_raise_else_check_call_policy",
+    "observation_canonical_json",
+    "observation_fingerprint",
+    "observation_to_dict",
     "replay_transcript",
     "settle_terminal_hand",
     "settlement_sha256",
