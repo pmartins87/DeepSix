@@ -48,6 +48,12 @@ from .settlement import (
     SimulatorSettlementError,
     settle_terminal_hand,
 )
+from .utility import (
+    SIMULATOR_UTILITY_VERSION,
+    SeatUtility,
+    SimulatorUtilityVector,
+    utility_from_settlement,
+)
 
 __all__ = [
     "AgentPolicy",
@@ -61,6 +67,8 @@ __all__ = [
     "SIMULATOR_SESSION_SCHEMA_VERSION",
     "SIMULATOR_SETTLEMENT_VERSION",
     "SIMULATOR_TRANSCRIPT_SCHEMA_VERSION",
+    "SIMULATOR_UTILITY_VERSION",
+    "SeatUtility",
     "SessionHandRecord",
     "SimulatedHand",
     "SimulatorAction",
@@ -76,6 +84,7 @@ __all__ = [
     "SimulatorSettlement",
     "SimulatorSettlementError",
     "SimulatorStepResult",
+    "SimulatorUtilityVector",
     "check_call_policy",
     "min_raise_else_check_call_policy",
     "observation_canonical_json",
@@ -86,4 +95,5 @@ __all__ = [
     "settle_terminal_hand",
     "settlement_sha256",
     "transcript_from_hand",
+    "utility_from_settlement",
 ]
