@@ -84,7 +84,9 @@ class SimulatorSettlementLayerTests(unittest.TestCase):
         holes = {
             1: (parse_card("Js"), parse_card("Tc")),  # Broadway, main-pot winner
             2: (parse_card("Ah"), parse_card("Ad")),  # trips A, side-pot winner
-            0: (parse_card("6d"), parse_card("7d")),
+            # Avoid 67 here: with an Ace on this board 67 forms the special
+            # Short Deck A6789 straight and would correctly beat trips.
+            0: (parse_card("6d"), parse_card("Jh")),
         }
         settlement = settle_terminal_hand(
             state,
