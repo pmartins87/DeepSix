@@ -77,8 +77,10 @@ class SimulatorSessionResult:
                 raise SimulatorEnvironmentError("session hand indexes must be contiguous")
             if record.dealt_players < 2 or record.dealt_players > 6:
                 raise SimulatorEnvironmentError("invalid dealt-player count in session")
-            if record.decisions < 1:
-                raise SimulatorEnvironmentError("settled session hand has no decisions")
+            # A hand may need zero strategic decisions when forced contributions
+            # put every remaining funded seat all-in at the hand start.
+            if record.decisions < 0:
+                raise SimulatorEnvironmentError("negative decision count")
             if record.gross_pot_units < 0 or record.rake_units < 0 or record.bbj_units < 0:
                 raise SimulatorEnvironmentError("negative monetary session statistic")
             if len(record.transcript_fingerprint) != 64:
