@@ -1,3 +1,4 @@
+import random
 import unittest
 
 from deepsix_core.pots import PotAccountingError, build_pot_layers
@@ -34,6 +35,61 @@ class PotAccountingTests(unittest.TestCase):
     def test_layer_with_only_folded_eligibles_rejected(self):
         with self.assertRaises(PotAccountingError):
             build_pot_layers({0: 100, 1: 50}, folded={0, 1})
+
+    def test_5000_randomized_2_to_6_player_layers_preserve_exact_invariants(self):
+        rng = random.Random(20260826)
+        cases = 0
+        for player_count in range(2, 7):
+            for _ in range(1000):
+                contributions = {
+                    seat: rng.randint(0, 250)
+                    for seat in range(player_count)
+                }
+                if not any(contributions.values()):
+                    contributions[rng.randrange(player_count)] = rng.randint(1, 250)
+
+                # Keep at least one deepest contributor live. This is sufficient
+                # to guarantee that every lower layer also has an eligible seat.
+                deepest = max(contributions.values())
+                deepest_seats = [
+                    seat for seat, value in contributions.items() if value == deepest
+                ]
+                protected = rng.choice(deepest_seats)
+                folded = {
+                    seat
+                    for seat in range(player_count)
+                    if seat != protected and rng.random() < 0.4
+                }
+
+                layers = build_pot_layers(contributions, folded)
+                levels = sorted({value for value in contributions.values() if value > 0})
+                self.assertEqual([layer.cap for layer in layers], levels)
+                self.assertEqual(sum(layer.amount for layer in layers), sum(contributions.values()))
+
+                previous = 0
+                reconstructed = {seat: 0 for seat in contributions}
+                for layer in layers:
+                    contributors = tuple(
+                        sorted(
+                            seat
+                            for seat, value in contributions.items()
+                            if value >= layer.cap
+                        )
+                    )
+                    eligible = tuple(seat for seat in contributors if seat not in folded)
+                    width = layer.cap - previous
+                    self.assertGreater(width, 0)
+                    self.assertEqual(layer.contributors, contributors)
+                    self.assertEqual(layer.eligible, eligible)
+                    self.assertTrue(eligible)
+                    self.assertEqual(layer.amount, width * len(contributors))
+                    for seat in contributors:
+                        reconstructed[seat] += width
+                    previous = layer.cap
+
+                self.assertEqual(reconstructed, contributions)
+                cases += 1
+        self.assertEqual(cases, 5000)
 
 
 if __name__ == "__main__":

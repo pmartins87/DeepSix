@@ -25,6 +25,17 @@ jobs:
           --replay-every 3
           --checkpoint-every 4
           --run-dir /tmp/deepsix_simulator_soak_smoke
+      - name: Smoke-test Ryzen suite v3 end-to-end
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/deepsix_ryzen_suite_smoke
+          SUITE_OUTPUT="$(python tools/run_ryzen_benchmark_suite.py --profile smoke --output-root /tmp/deepsix_ryzen_suite_smoke)"
+          printf '%s\n' "$SUITE_OUTPUT"
+          RUN_DIR="$(printf '%s\n' "$SUITE_OUTPUT" | head -n 1)"
+          test -d "$RUN_DIR"
+          python tools/analyze_ryzen_benchmark_suite.py "$RUN_DIR" --output /tmp/deepsix_ryzen_suite_analysis.json
+          test -s /tmp/deepsix_ryzen_suite_analysis.json
       - name: Smoke-test river action abstraction benchmark
         run: >-
           python tools/benchmark_river_action_abstraction.py

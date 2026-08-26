@@ -4,7 +4,8 @@ Status: **critical-path implementation / F2 PARTIAL+**
 Rules profile: `deepsix_shortdeck_sim_rules_2026-08-25_v1`  
 Economy profile: `ggpoker_shortdeck_cash_2026-08-16_v1`  
 Settlement profile: `deepsix_sim_settlement_2026-08-25_v1`  
-Utility profile: `deepsix_sim_utility_2026-08-25_v1`
+Utility profile: `deepsix_sim_utility_2026-08-25_v1`  
+Soak/checkpoint schema: `SIMULATOR_SOAK_SCHEMA_VERSION = 1`
 
 ## Purpose
 
@@ -23,6 +24,7 @@ seeded 36-card deck
  -> exact per-seat utility
  -> persistent session stacks
  -> transcript/snapshot replay
+ -> deterministic sharded soak evidence
 ```
 
 ## Rules v1
@@ -68,7 +70,7 @@ sum(gross_poker_delta) = 0
 sum(net_cash_delta)    = -(rake + BBJ)
 ```
 
-The trainer can no longer accidentally call the raked cash game zero-sum. Gross utility remains useful for mathematical subgame/oracle work; net utility is the actual simulator cash result. Both are exact integers plus `Fraction` normalization in antes.
+The trainer cannot silently treat the raked cash game as zero-sum. Gross utility remains useful for mathematical subgame/oracle work; net utility is the actual simulator cash result. Both are exact integers plus `Fraction` normalization in antes.
 
 ## Environment API
 
@@ -116,7 +118,50 @@ A restored table must round-trip to the same canonical snapshot before it is acc
 
 `DeepSixTable` persists bankrolls and Dealer across hands. `run_seeded_session()` executes an explicit deterministic seed schedule and records per-hand transcript fingerprints, decisions, gross pot, rake and BBJ plus final stacks and a canonical session fingerprint.
 
-The current runner is intentionally single-process. We will add worker parallelism only after measuring the actual environment bottleneck.
+The persistent session runner remains intentionally single-process. Process-level parallelism is a separate throughput decision, not part of the poker semantics.
+
+## Long-soak harness
+
+`tools/run_simulator_soak.py` is the crash-safe correctness harness for very long simulator validation. Soak hands are independent by design, so a million-hand correctness run cannot terminate merely because a persistent cash bankroll has been depleted by rake or because only one funded seat remains.
+
+`SimulatorSoakPlan` freezes:
+
+- global hand count and base seed;
+- stake;
+- 2..6-player mix;
+- asymmetric stack range in antes;
+- BBJ mode;
+- replay sampling cadence;
+- shard count/index.
+
+Global hand `g` has deterministic seed `seed_base + g`. Shard `s` of `N` owns `s, s+N, s+2N, ...`. The hand id is derived from the **global hand index only**, so repartitioning the same schedule across another worker topology leaves deal, actions, settlement and transcript fingerprint unchanged.
+
+`SimulatorSoakCheckpoint` stores only deterministic semantic counters: completed ordinal, decisions, gross pot, rake, BBJ, replay count, zero-decision hands and terminal-board histogram. It has canonical JSON and SHA-256 identity.
+
+Checkpoint writes are atomic (`temp -> flush -> fsync -> os.replace`). On an exception the harness persists the last fully completed checkpoint plus `failure.json` containing the exact global index, seed and error. `--resume` refuses a checkpoint whose frozen plan differs from the requested run.
+
+Every soak hand independently verifies:
+
+```text
+sum(gross_awards) = gross_pot
+sum(net_awards)   = gross_pot - house_deductions
+sum(final_stacks) = sum(starting_stacks) - house_deductions
+```
+
+It also checks terminal board cardinality, card uniqueness and periodically performs full transcript replay. The random stress policy samples only legal `CHECK/CALL/FOLD/min-raise/max-raise` candidates.
+
+Example one-million-hand single-shard run:
+
+```text
+python tools/run_simulator_soak.py \
+  --hands 1000000 \
+  --players 2,3,4,5,6 \
+  --replay-every 1000 \
+  --checkpoint-every 1000 \
+  --run-dir soak_runs/one_million
+```
+
+The command above is a run recipe, not evidence that the one-million-hand soak has already completed.
 
 ## Validation already implemented
 
@@ -133,38 +178,48 @@ Current simulator gates include:
 - canonical transcript roundtrip and exact replay;
 - seed/actor tamper rejection;
 - reset/observe/step API;
-- 60 randomized 2..6-player trajectories with asymmetric stacks and legal random actions;
+- randomized 2..6-player trajectories with asymmetric stacks and legal random actions;
 - session-level bankroll conservation;
 - exact gross-vs-net utility identities;
 - between-hand snapshot/restart equivalence;
+- deterministic disjoint soak sharding;
+- shard-topology-invariant global hand identity;
+- crash-safe soak checkpoint/failure artifacts;
+- CI smoke execution of the soak harness;
 - simulator throughput benchmark wiring.
 
-Two important fixture errors were exposed by these gates and corrected instead of weakening the engine:
+Two important fixture errors were exposed by earlier gates and corrected instead of weakening the engine:
 
 1. folds can legitimately terminate on flop/turn, so a terminal board can contain 3 or 4 cards;
 2. `67` on `AKQ98` forms the special Short Deck `A6789` straight, so that fixture legitimately beat trips.
 
-## Performance benchmark
+## Performance benchmark and Ryzen suite
 
-`tools/benchmark_simulator_throughput.py` measures the pure single-process environment at 2/4/6 players using independent deterministic check/call hands. It reports hands/s, decisions/s, mean decisions/hand, gross pot and rake. CI uses only tiny wiring tests; Ryzen measurements are the engineering evidence.
+`tools/benchmark_simulator_throughput.py` measures the pure single-process environment at 2/4/6 players using independent deterministic check/call hands. It reports hands/s, decisions/s, mean decisions/hand, gross pot and rake.
 
-Example:
+The benchmark is now part of **Ryzen Benchmark Suite v3**, alongside action abstraction, scalable multi-size raise, state-abstraction battery/convergence and CFR-vs-RM+ solver comparisons. The analyzer verifies every JSON/log SHA-256 before using the evidence and keeps environment throughput separate from strategy-quality metrics.
+
+Primary engineering command:
 
 ```text
-python tools/benchmark_simulator_throughput.py --hands 10000 --players 2,4,6 --output simulator_bench.json
+python tools/run_ryzen_benchmark_suite.py --profile engineering
 ```
+
+Then:
+
+```text
+python tools/analyze_ryzen_benchmark_suite.py benchmark_runs/<RUN> --output analysis.json
+```
+
+CI proves wiring only. Actual target-machine throughput and strategy promotion decisions require the real engineering run.
 
 ## Still required before F2 PASS
 
-- CI green for the newest snapshot/utility/session/benchmark commits;
 - larger fuzz beyond the short CI battery;
 - adversarial generated short-all-in/reopen sequences;
-- broader randomized side-pot property tests;
-- long self-play soak with zero state/accounting/replay divergence;
-- real hands/s, decisions/s and peak-memory measurements on the Ryzen 9;
-- crash-safe run manifest around long sessions;
-- deterministic shard/seed allocation for process workers;
-- multiprocess runner after profiling;
+- long soak with zero state/accounting/replay divergence;
+- real hands/s, decisions/s and peak-memory measurements on the target workstation;
+- multiprocess runner only if profiling shows useful scaling;
 - optional rebuy/top-up/join/leave semantics if long fixed-player-count sessions require them;
 - transcript retention policy that samples normal hands and preserves all errors/outliers without excessive I/O.
 
