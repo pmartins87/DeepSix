@@ -9,6 +9,12 @@ from .api import (
     observation_fingerprint,
     observation_to_dict,
 )
+from .batch import (
+    SIMULATOR_SESSION_SCHEMA_VERSION,
+    SessionHandRecord,
+    SimulatorSessionResult,
+    run_seeded_session,
+)
 from .environment import (
     AgentPolicy,
     DeepSixTable,
@@ -52,8 +58,10 @@ __all__ = [
     "PublicPlayerState",
     "SIMULATOR_OBSERVATION_SCHEMA_VERSION",
     "SIMULATOR_RULES_VERSION",
+    "SIMULATOR_SESSION_SCHEMA_VERSION",
     "SIMULATOR_SETTLEMENT_VERSION",
     "SIMULATOR_TRANSCRIPT_SCHEMA_VERSION",
+    "SessionHandRecord",
     "SimulatedHand",
     "SimulatorAction",
     "SimulatorDecisionRecord",
@@ -64,6 +72,7 @@ __all__ = [
     "SimulatorResetConfig",
     "SimulatorRulesError",
     "SimulatorRulesProfile",
+    "SimulatorSessionResult",
     "SimulatorSettlement",
     "SimulatorSettlementError",
     "SimulatorStepResult",
@@ -73,6 +82,7 @@ __all__ = [
     "observation_fingerprint",
     "observation_to_dict",
     "replay_transcript",
+    "run_seeded_session",
     "settle_terminal_hand",
     "settlement_sha256",
     "transcript_from_hand",
