@@ -87,7 +87,12 @@ class SimulatorUtilityVector:
                 raise SimulatorSettlementError("negative net award/post stack in utility")
             if item.gross_award_units - item.house_charge_units != item.net_award_units:
                 raise SimulatorSettlementError("gross-charge != net award")
-            if item.starting_stack_units - item.committed_units + item.net_award_units != item.post_hand_stack_units:
+            if (
+                item.starting_stack_units
+                - item.committed_units
+                + item.net_award_units
+                != item.post_hand_stack_units
+            ):
                 raise SimulatorSettlementError("utility post-stack identity failed")
             if item.gross_poker_delta_units != item.gross_award_units - item.committed_units:
                 raise SimulatorSettlementError("gross utility identity failed")
@@ -119,15 +124,25 @@ def utility_from_settlement(
     if settlement.gross_pot_units != state.pot():
         raise SimulatorSettlementError("settlement/state pot mismatch")
 
+    ante = rules.ante_units(stake_cents)
+    if state.config.ante != ante:
+        raise SimulatorSettlementError(
+            "stake/rules ante differs from the hand configuration"
+        )
+
     gross = dict(settlement.gross_awards)
     charges = dict(settlement.house_charges)
     net = dict(settlement.net_awards)
     post = dict(settlement.post_hand_stacks)
     state_seats = {player.seat for player in state.players}
-    if set(gross) != state_seats or set(charges) != state_seats or set(net) != state_seats or set(post) != state_seats:
+    if (
+        set(gross) != state_seats
+        or set(charges) != state_seats
+        or set(net) != state_seats
+        or set(post) != state_seats
+    ):
         raise SimulatorSettlementError("settlement utility seat set mismatch")
 
-    ante = rules.ante_units(stake_cents)
     rows: list[SeatUtility] = []
     for player in sorted(state.players, key=lambda item: item.seat):
         starting = player.stack + player.committed_total
