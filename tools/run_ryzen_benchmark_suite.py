@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Run a reproducible DeepSix benchmark suite on a controlled workstation.
+"""Run a reproducible DeepSix engineering benchmark suite.
 
-The suite is designed for the project's Ryzen 9 but works on any machine.  It
-never guesses performance from CI.  Instead it records the exact Git commit,
-Python/platform metadata, command lines, elapsed wall time and SHA-256 of every
-JSON result in one durable manifest.
+The suite is designed for the project's Ryzen-class workstation but works on any
+machine. It never guesses workstation performance from CI. Instead it records the
+exact Git commit, Python/platform metadata, command lines, elapsed wall time and
+SHA-256 of every JSON result in one durable manifest.
 
-Profiles are intentionally explicit:
+Profiles are explicit:
 
 * smoke       - wiring check only;
 * engineering - first useful comparative run;
-* long        - larger convergence run suitable for an overnight/long session.
+* long        - larger convergence/performance run.
 
-Manifest contract v2 adds the state-abstraction convergence battery to the four
-v1 outputs.  The analyzer remains backward-compatible with existing v1 runs.
+Manifest contract v3 adds pure simulator throughput to the five v2 strategy
+benchmark outputs. The analyzer remains backward-compatible with v1 and v2.
 
-The suite does not modify strategy code or promote a winner.  It only executes
-versioned benchmark programs and packages auditable evidence for later analysis.
+The suite does not promote a strategy automatically. It packages auditable
+evidence so action/state abstraction and solver choices can be made from measured
+error/cost trade-offs on the target machine.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SUITE_VERSION = "deepsix_ryzen_benchmark_suite_v2"
+SUITE_VERSION = "deepsix_ryzen_benchmark_suite_v3"
 
 
 class RyzenSuiteError(RuntimeError):
@@ -58,6 +59,7 @@ class Profile:
     state_convergence_fixture_limit: int | None
     solver_checkpoints: str
     solver_fixture_limit: int | None
+    simulator_hands: int
 
 
 PROFILES = {
@@ -70,6 +72,7 @@ PROFILES = {
         state_convergence_fixture_limit=1,
         solver_checkpoints="2",
         solver_fixture_limit=1,
+        simulator_hands=20,
     ),
     "engineering": Profile(
         action_iterations=5000,
@@ -80,6 +83,7 @@ PROFILES = {
         state_convergence_fixture_limit=None,
         solver_checkpoints="100,300,1000,3000",
         solver_fixture_limit=None,
+        simulator_hands=10_000,
     ),
     "long": Profile(
         action_iterations=30000,
@@ -90,6 +94,7 @@ PROFILES = {
         state_convergence_fixture_limit=None,
         solver_checkpoints="300,1000,3000,10000",
         solver_fixture_limit=None,
+        simulator_hands=100_000,
     ),
 }
 
@@ -204,6 +209,20 @@ def _commands(profile: Profile, output_dir: Path) -> tuple[BenchmarkCommand, ...
             tuple(solver_args),
             "solver_algorithms.json",
         ),
+        BenchmarkCommand(
+            "simulator_throughput",
+            (
+                python,
+                "tools/benchmark_simulator_throughput.py",
+                "--hands",
+                str(profile.simulator_hands),
+                "--players",
+                "2,4,6",
+                "--output",
+                str(output_dir / "simulator_throughput.json"),
+            ),
+            "simulator_throughput.json",
+        ),
     )
 
 
@@ -310,6 +329,7 @@ def main() -> int:
             "state_convergence_fixture_limit": profile.state_convergence_fixture_limit,
             "solver_checkpoints": profile.solver_checkpoints,
             "solver_fixture_limit": profile.solver_fixture_limit,
+            "simulator_hands": profile.simulator_hands,
         },
         "commands": [],
     }

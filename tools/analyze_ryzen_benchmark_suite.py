@@ -8,18 +8,12 @@ does it derive comparison summaries.
 Supported manifest contracts:
 
 * v1 — four original benchmark outputs;
-* v2 — adds state-abstraction convergence curves.
+* v2 — adds state-abstraction convergence curves;
+* v3 — adds pure simulator throughput at 2/4/6 players.
 
-It can compute Pareto candidates where metrics are genuinely comparable:
-
-* solver algorithms use the same exact game/oracle at the same checkpoint;
-* private-state abstractions use the same action game and unabstracted exact BR;
-* state-abstraction convergence compares methods at the same cumulative
-  iteration checkpoint while preserving measured wall-clock as a cost axis.
-
-It does **not** rank different action spaces by exploitability, because a richer
-action set changes the game in which exploitability is defined. Those results
-are reported as structure/throughput evidence only.
+It computes Pareto candidates only where metrics are genuinely comparable.
+Different action spaces are never ranked by exploitability, because widening the
+action set changes the game being evaluated.
 """
 
 from __future__ import annotations
@@ -34,6 +28,7 @@ from pathlib import Path
 SUPPORTED_SUITES = {
     "deepsix_ryzen_benchmark_suite_v1",
     "deepsix_ryzen_benchmark_suite_v2",
+    "deepsix_ryzen_benchmark_suite_v3",
 }
 
 
@@ -88,6 +83,8 @@ def _command_outputs(manifest: dict, run_dir: Path) -> dict[str, dict]:
     outputs = {}
     for record in manifest["commands"]:
         name = record["name"]
+        if name in outputs:
+            raise RyzenAnalysisError(f"duplicate benchmark command name: {name}")
         path = run_dir / record["output"]
         outputs[name] = json.loads(path.read_text(encoding="utf-8"))
     return outputs
@@ -305,6 +302,69 @@ def analyze_action_structure(payload: dict) -> dict:
     }
 
 
+def analyze_simulator_throughput(payload: dict) -> dict:
+    cases = payload.get("cases")
+    if not isinstance(cases, list) or not cases:
+        raise RyzenAnalysisError("simulator throughput benchmark has no cases")
+
+    normalized = []
+    seen = set()
+    for row in cases:
+        try:
+            player_count = int(row["player_count"])
+            hands = int(row["hands"])
+            hands_per_second = float(row["hands_per_second"])
+            decisions = int(row["decisions"])
+            decisions_per_second = float(row["decisions_per_second"])
+            mean_decisions_per_hand = float(row["mean_decisions_per_hand"])
+            elapsed_seconds = float(row["elapsed_seconds"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise RyzenAnalysisError("malformed simulator throughput case") from exc
+        if player_count < 2 or player_count > 6 or player_count in seen:
+            raise RyzenAnalysisError("invalid/duplicate simulator player count")
+        seen.add(player_count)
+        if (
+            hands <= 0
+            or decisions < 0
+            or elapsed_seconds <= 0
+            or hands_per_second <= 0
+            or decisions_per_second < 0
+            or mean_decisions_per_hand < 0
+        ):
+            raise RyzenAnalysisError("invalid simulator throughput metric")
+        normalized.append(
+            {
+                "player_count": player_count,
+                "hands": hands,
+                "elapsed_seconds": elapsed_seconds,
+                "hands_per_second": hands_per_second,
+                "decisions": decisions,
+                "decisions_per_second": decisions_per_second,
+                "mean_decisions_per_hand": mean_decisions_per_hand,
+                "mean_gross_pot_units": float(row.get("mean_gross_pot_units", 0.0)),
+                "mean_rake_units": float(row.get("mean_rake_units", 0.0)),
+            }
+        )
+
+    return {
+        "cases": normalized,
+        "min_hands_per_second": min(row["hands_per_second"] for row in normalized),
+        "mean_hands_per_second": statistics.fmean(
+            row["hands_per_second"] for row in normalized
+        ),
+        "min_decisions_per_second": min(
+            row["decisions_per_second"] for row in normalized
+        ),
+        "mean_decisions_per_second": statistics.fmean(
+            row["decisions_per_second"] for row in normalized
+        ),
+        "comparison_boundary": (
+            "this is environment throughput under a deterministic passive policy; "
+            "it is a capacity baseline, not a solver-quality metric"
+        ),
+    }
+
+
 def analyze_run(run_dir: Path) -> dict:
     run_dir = run_dir.resolve()
     manifest = load_verified_manifest(run_dir)
@@ -320,7 +380,12 @@ def analyze_run(run_dir: Path) -> dict:
         required = legacy_required
     elif suite == "deepsix_ryzen_benchmark_suite_v2":
         required = legacy_required | {"state_abstraction_convergence"}
-    else:  # guarded by load_verified_manifest; defensive for direct reuse.
+    elif suite == "deepsix_ryzen_benchmark_suite_v3":
+        required = legacy_required | {
+            "state_abstraction_convergence",
+            "simulator_throughput",
+        }
+    else:
         raise RyzenAnalysisError("unsupported benchmark-suite manifest")
 
     if set(outputs) != required:
@@ -329,7 +394,7 @@ def analyze_run(run_dir: Path) -> dict:
         )
 
     result = {
-        "analysis": "deepsix_ryzen_benchmark_analysis_v2",
+        "analysis": "deepsix_ryzen_benchmark_analysis_v3",
         "source_suite": suite,
         "git_commit": manifest["git_commit"],
         "profile": manifest["profile"],
@@ -344,15 +409,32 @@ def analyze_run(run_dir: Path) -> dict:
             outputs["scalable_multisize_raise"]
         ),
     }
-    if suite == "deepsix_ryzen_benchmark_suite_v2":
+    if suite in (
+        "deepsix_ryzen_benchmark_suite_v2",
+        "deepsix_ryzen_benchmark_suite_v3",
+    ):
         result["state_abstraction_convergence"] = analyze_state_convergence(
             outputs["state_abstraction_convergence"]
         )
     else:
         result["state_abstraction_convergence"] = None
+
+    if suite == "deepsix_ryzen_benchmark_suite_v3":
+        result["simulator_throughput"] = analyze_simulator_throughput(
+            outputs["simulator_throughput"]
+        )
+    else:
+        result["simulator_throughput"] = None
+
+    if suite == "deepsix_ryzen_benchmark_suite_v1":
         result["legacy_note"] = (
-            "v1 manifest predates the state-abstraction convergence battery; "
+            "v1 predates state-abstraction convergence and simulator throughput; "
             "all original evidence remains verified and analyzable"
+        )
+    elif suite == "deepsix_ryzen_benchmark_suite_v2":
+        result["legacy_note"] = (
+            "v2 predates simulator-throughput capture; strategy evidence remains "
+            "verified and analyzable"
         )
     return result
 

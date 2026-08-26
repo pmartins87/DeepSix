@@ -201,8 +201,11 @@ def run_one(
     dealer = global_index % player_count
     stacks = _stack_schedule(plan, seed=seed, player_count=player_count)
 
+    # The hand identity belongs to the global deterministic schedule, not to the
+    # worker topology. Moving a global index between shard layouts must leave the
+    # exact transcript fingerprint unchanged.
     hand = SimulatedHand.start(
-        hand_id=f"soak-g{global_index:012d}-s{plan.shard_index:04d}",
+        hand_id=f"soak-g{global_index:012d}",
         stake_cents=plan.stake_cents,
         seed=seed,
         dealer_seat=dealer,

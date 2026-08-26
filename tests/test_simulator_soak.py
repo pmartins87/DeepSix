@@ -1,11 +1,13 @@
 import unittest
 
+from deepsix_simulator import transcript_from_hand
 from deepsix_simulator.soak import (
     SIMULATOR_SOAK_SCHEMA_VERSION,
     SimulatorSoakCheckpoint,
     SimulatorSoakError,
     SimulatorSoakPlan,
 )
+from tools.run_simulator_soak import run_one
 
 
 def make_plan(**overrides):
@@ -62,6 +64,35 @@ class SimulatorSoakPlanTests(unittest.TestCase):
             for i in range(plan.local_target_hands)
         ]
         self.assertEqual(flags, [False, False, False, True, True])
+
+    def test_global_hand_semantics_do_not_depend_on_shard_topology(self):
+        unsharded = make_plan(
+            total_global_hands=12,
+            shard_count=1,
+            shard_index=0,
+            replay_every=0,
+        )
+        sharded = make_plan(
+            total_global_hands=12,
+            shard_count=3,
+            shard_index=2,
+            replay_every=0,
+        )
+        # Global hand 5 is ordinal 5 unsharded and ordinal 1 in shard 2/3.
+        self.assertEqual(unsharded.global_index(5), 5)
+        self.assertEqual(sharded.global_index(1), 5)
+
+        direct, _ = run_one(unsharded, 5)
+        partitioned, _ = run_one(sharded, 1)
+        self.assertEqual(direct.hand_id, partitioned.hand_id)
+        self.assertEqual(direct.hole_cards, partitioned.hole_cards)
+        self.assertEqual(direct.state.board, partitioned.state.board)
+        self.assertEqual(direct.state.actions, partitioned.state.actions)
+        self.assertEqual(direct.settlement, partitioned.settlement)
+        self.assertEqual(
+            transcript_from_hand(direct).fingerprint(),
+            transcript_from_hand(partitioned).fingerprint(),
+        )
 
     def test_invalid_plan_is_rejected(self):
         with self.assertRaises(SimulatorSoakError):

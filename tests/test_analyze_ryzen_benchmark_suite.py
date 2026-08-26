@@ -19,7 +19,7 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
     def make_run(
         self,
         root: Path,
-        suite: str = "deepsix_ryzen_benchmark_suite_v2",
+        suite: str = "deepsix_ryzen_benchmark_suite_v3",
     ):
         outputs = {
             "action_abstraction": {
@@ -174,9 +174,49 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
                     },
                 ]
             },
+            "simulator_throughput": {
+                "cases": [
+                    {
+                        "player_count": 2,
+                        "hands": 10000,
+                        "elapsed_seconds": 5.0,
+                        "hands_per_second": 2000.0,
+                        "decisions": 80000,
+                        "decisions_per_second": 16000.0,
+                        "mean_decisions_per_hand": 8.0,
+                        "mean_gross_pot_units": 8.0,
+                        "mean_rake_units": 0.0,
+                    },
+                    {
+                        "player_count": 4,
+                        "hands": 10000,
+                        "elapsed_seconds": 10.0,
+                        "hands_per_second": 1000.0,
+                        "decisions": 160000,
+                        "decisions_per_second": 16000.0,
+                        "mean_decisions_per_hand": 16.0,
+                        "mean_gross_pot_units": 12.0,
+                        "mean_rake_units": 0.0,
+                    },
+                    {
+                        "player_count": 6,
+                        "hands": 10000,
+                        "elapsed_seconds": 20.0,
+                        "hands_per_second": 500.0,
+                        "decisions": 240000,
+                        "decisions_per_second": 12000.0,
+                        "mean_decisions_per_hand": 24.0,
+                        "mean_gross_pot_units": 16.0,
+                        "mean_rake_units": 0.0,
+                    },
+                ]
+            },
         }
         if suite == "deepsix_ryzen_benchmark_suite_v1":
             outputs.pop("state_abstraction_convergence")
+            outputs.pop("simulator_throughput")
+        elif suite == "deepsix_ryzen_benchmark_suite_v2":
+            outputs.pop("simulator_throughput")
 
         commands = []
         for name, payload in outputs.items():
@@ -203,14 +243,14 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
         }
         write_json(root / "manifest.json", manifest)
 
-    def test_verified_v2_analysis_finds_expected_pareto_candidates(self):
+    def test_verified_v3_analysis_finds_expected_pareto_and_simulator_capacity(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.make_run(root)
             result = analyze_run(root)
             self.assertTrue(result["evidence_sha256_verified"])
-            self.assertEqual(result["analysis"], "deepsix_ryzen_benchmark_analysis_v2")
-            self.assertEqual(result["source_suite"], "deepsix_ryzen_benchmark_suite_v2")
+            self.assertEqual(result["analysis"], "deepsix_ryzen_benchmark_analysis_v3")
+            self.assertEqual(result["source_suite"], "deepsix_ryzen_benchmark_suite_v3")
             self.assertEqual(result["solver"]["final_checkpoint"], 300)
             self.assertEqual(result["solver"]["pareto_candidates"], ["rmplus"])
             self.assertIn("identity", result["state_abstraction"]["pareto_candidates"])
@@ -223,6 +263,25 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
             self.assertIn("compressed", convergence["300"]["pareto_candidates"])
             self.assertNotIn("dominated", convergence["300"]["pareto_candidates"])
 
+            simulator = result["simulator_throughput"]
+            self.assertEqual(simulator["min_hands_per_second"], 500.0)
+            self.assertEqual(simulator["mean_hands_per_second"], 3500.0 / 3.0)
+            self.assertEqual(
+                tuple(row["player_count"] for row in simulator["cases"]),
+                (2, 4, 6),
+            )
+
+    def test_v2_manifest_remains_verifiable_and_analyzable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.make_run(root, suite="deepsix_ryzen_benchmark_suite_v2")
+            result = analyze_run(root)
+            self.assertTrue(result["evidence_sha256_verified"])
+            self.assertEqual(result["source_suite"], "deepsix_ryzen_benchmark_suite_v2")
+            self.assertIsNotNone(result["state_abstraction_convergence"])
+            self.assertIsNone(result["simulator_throughput"])
+            self.assertIn("legacy_note", result)
+
     def test_legacy_v1_manifest_remains_verifiable_and_analyzable(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -231,6 +290,7 @@ class AnalyzeRyzenBenchmarkSuiteTests(unittest.TestCase):
             self.assertTrue(result["evidence_sha256_verified"])
             self.assertEqual(result["source_suite"], "deepsix_ryzen_benchmark_suite_v1")
             self.assertIsNone(result["state_abstraction_convergence"])
+            self.assertIsNone(result["simulator_throughput"])
             self.assertIn("legacy_note", result)
             self.assertEqual(result["solver"]["final_checkpoint"], 300)
 

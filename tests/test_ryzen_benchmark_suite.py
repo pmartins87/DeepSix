@@ -6,8 +6,8 @@ from tools.run_ryzen_benchmark_suite import PROFILES, SUITE_VERSION, _commands
 
 
 class RyzenBenchmarkSuiteTests(unittest.TestCase):
-    def test_manifest_contract_is_v2_after_convergence_output(self):
-        self.assertEqual(SUITE_VERSION, "deepsix_ryzen_benchmark_suite_v2")
+    def test_manifest_contract_is_v3_after_simulator_throughput_output(self):
+        self.assertEqual(SUITE_VERSION, "deepsix_ryzen_benchmark_suite_v3")
 
     def test_profiles_are_strictly_ordered_by_primary_budgets(self):
         smoke = PROFILES["smoke"]
@@ -19,6 +19,8 @@ class RyzenBenchmarkSuiteTests(unittest.TestCase):
         self.assertLess(engineering.scalable_raise_iterations, long.scalable_raise_iterations)
         self.assertLess(smoke.state_iterations, engineering.state_iterations)
         self.assertLess(engineering.state_iterations, long.state_iterations)
+        self.assertLess(smoke.simulator_hands, engineering.simulator_hands)
+        self.assertLess(engineering.simulator_hands, long.simulator_hands)
         self.assertEqual(smoke.state_fixture_limit, 1)
         self.assertIsNone(engineering.state_fixture_limit)
         self.assertIsNone(long.state_fixture_limit)
@@ -29,7 +31,7 @@ class RyzenBenchmarkSuiteTests(unittest.TestCase):
         self.assertIsNone(engineering.state_convergence_fixture_limit)
         self.assertIsNone(long.state_convergence_fixture_limit)
 
-    def test_suite_contains_five_nonoverlapping_benchmark_outputs(self):
+    def test_suite_contains_six_nonoverlapping_benchmark_outputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             output_dir = Path(temporary)
             commands = _commands(PROFILES["engineering"], output_dir)
@@ -41,6 +43,7 @@ class RyzenBenchmarkSuiteTests(unittest.TestCase):
                     "state_abstraction_battery",
                     "state_abstraction_convergence",
                     "solver_algorithms",
+                    "simulator_throughput",
                 ),
             )
             outputs = tuple(command.output_name for command in commands)
@@ -48,6 +51,14 @@ class RyzenBenchmarkSuiteTests(unittest.TestCase):
             for command in commands:
                 self.assertIn("--output", command.argv)
                 self.assertTrue(str(output_dir) in " ".join(command.argv))
+
+            simulator = next(
+                command for command in commands if command.name == "simulator_throughput"
+            )
+            self.assertIn("--hands", simulator.argv)
+            self.assertIn(str(PROFILES["engineering"].simulator_hands), simulator.argv)
+            self.assertIn("--players", simulator.argv)
+            self.assertIn("2,4,6", simulator.argv)
 
     def test_smoke_limits_expensive_batteries_to_one_fixture(self):
         with tempfile.TemporaryDirectory() as temporary:
