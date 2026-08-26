@@ -48,6 +48,13 @@ from .settlement import (
     SimulatorSettlementError,
     settle_terminal_hand,
 )
+from .snapshot import (
+    SIMULATOR_TABLE_SNAPSHOT_SCHEMA_VERSION,
+    SimulatorSnapshotError,
+    SimulatorTableSnapshot,
+    restore_table,
+    snapshot_table,
+)
 from .utility import (
     SIMULATOR_UTILITY_VERSION,
     SeatUtility,
@@ -66,6 +73,7 @@ __all__ = [
     "SIMULATOR_RULES_VERSION",
     "SIMULATOR_SESSION_SCHEMA_VERSION",
     "SIMULATOR_SETTLEMENT_VERSION",
+    "SIMULATOR_TABLE_SNAPSHOT_SCHEMA_VERSION",
     "SIMULATOR_TRANSCRIPT_SCHEMA_VERSION",
     "SIMULATOR_UTILITY_VERSION",
     "SeatUtility",
@@ -83,7 +91,9 @@ __all__ = [
     "SimulatorSessionResult",
     "SimulatorSettlement",
     "SimulatorSettlementError",
+    "SimulatorSnapshotError",
     "SimulatorStepResult",
+    "SimulatorTableSnapshot",
     "SimulatorUtilityVector",
     "check_call_policy",
     "min_raise_else_check_call_policy",
@@ -91,9 +101,11 @@ __all__ = [
     "observation_fingerprint",
     "observation_to_dict",
     "replay_transcript",
+    "restore_table",
     "run_seeded_session",
     "settle_terminal_hand",
     "settlement_sha256",
+    "snapshot_table",
     "transcript_from_hand",
     "utility_from_settlement",
 ]
