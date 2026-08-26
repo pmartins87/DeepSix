@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Compare vanilla synchronous CFR and synchronous RM+ on exact river games.
+"""Compare solver-update families on the same exact Short Deck river games.
 
-The benchmark changes only the regret-update / averaging algorithm.  Cards,
-chance, action tree and exact exploitability oracle remain identical.  This is
-the correct place to ask whether a more aggressive regret scheme buys lower
-error per CPU-hour before promoting it to larger abstractions.
+The benchmark keeps cards, ranges, action tree and dynamic exact-best-response
+oracle fixed.  It currently compares:
 
-CI should use a tiny smoke.  Engineering conclusions require all fixtures,
-multiple iteration budgets and Ryzen 9 measurements.
+* synchronous full-chance vanilla CFR;
+* synchronous Regret-Matching+ with linear averaging;
+* deterministic-seed external-sampling MCCFR, transferred as an algorithmic
+  candidate from lessons in SpinCore.
+
+Iteration counts are deliberately *not* interpreted as equal work across full-
+chance and sampled algorithms.  Promotion decisions must use exact error versus
+measured wall-clock, followed by an equal-wall-clock confirmation for close
+candidates on the target workstation.
 """
 
 from __future__ import annotations
@@ -24,6 +29,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from deepsix_trainer.river_external_sampling import RiverExternalSamplingMCCFR  # noqa: E402
 from deepsix_trainer.river_lab_fixtures import benchmark_fixture_battery  # noqa: E402
 from deepsix_trainer.river_multisize_one_raise import RiverMultiSizeOneRaiseCFR  # noqa: E402
 from deepsix_trainer.river_multisize_one_raise_dpbr import exploitability_dp  # noqa: E402
@@ -62,6 +68,7 @@ def run_vanilla(cfg, checkpoints: tuple[int, ...]) -> list[dict]:
                 "exact_exploitability": loss,
                 "exploitability_over_pot": loss / cfg.pot,
                 "nodes": len(trainer.nodes),
+                "work_semantics": "full_chance_synchronous_iteration",
             }
         )
     return rows
@@ -93,6 +100,42 @@ def run_rmplus(cfg, checkpoints: tuple[int, ...], averaging_delay: int) -> list[
                 "exploitability_over_pot": loss / cfg.pot,
                 "nodes": len(trainer.nodes),
                 "regrets_nonnegative": trainer.all_regrets_nonnegative(),
+                "work_semantics": "full_chance_synchronous_iteration",
+            }
+        )
+    return rows
+
+
+def run_external_sampling(
+    cfg,
+    checkpoints: tuple[int, ...],
+    *,
+    seed: int,
+) -> list[dict]:
+    trainer = RiverExternalSamplingMCCFR(cfg, seed=seed)
+    rows = []
+    trained = 0
+    elapsed = 0.0
+    for target in checkpoints:
+        start = time.perf_counter()
+        trainer.train(target - trained)
+        elapsed += time.perf_counter() - start
+        trained = target
+        loss = exploitability_dp(cfg, trainer.average_policy())
+        rows.append(
+            {
+                "algorithm": "external_sampling_mccfr",
+                "seed": seed,
+                "iterations": target,
+                "training_seconds": elapsed,
+                "iterations_per_second": target / elapsed,
+                "exact_exploitability": loss,
+                "exploitability_over_pot": loss / cfg.pot,
+                "nodes": len(trainer.nodes),
+                "nodes_visited": trainer.nodes_visited,
+                "sampled_deals": trainer.sampled_deals,
+                "regrets_finite": trainer.all_regrets_finite(),
+                "work_semantics": "one_chance_deal_two_traversers_plus_own_reach_average",
             }
         )
     return rows
@@ -121,6 +164,9 @@ def aggregate(rows: list[dict], checkpoint: int) -> list[dict]:
                 "median_exploitability_over_pot": statistics.median(normalized),
                 "max_exploitability_over_pot": max(normalized),
                 "mean_iterations_per_second": statistics.fmean(throughput),
+                "mean_training_seconds": statistics.fmean(
+                    row["training_seconds"] for row in selected
+                ),
             }
         )
     return result
@@ -134,11 +180,14 @@ def main() -> int:
         default=parse_checkpoints("100,300,1000,3000"),
     )
     parser.add_argument("--rmplus-delay", type=int, default=50)
+    parser.add_argument("--external-seed", type=int, default=20260826)
     parser.add_argument("--fixture-limit", type=int)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.rmplus_delay < 0:
         parser.error("--rmplus-delay must be non-negative")
+    if args.external_seed < 0:
+        parser.error("--external-seed must be non-negative")
     if args.fixture_limit is not None and args.fixture_limit <= 0:
         parser.error("--fixture-limit must be positive")
 
@@ -147,14 +196,21 @@ def main() -> int:
         battery = battery[: args.fixture_limit]
 
     rows = []
-    for spec, cfg in battery:
+    for fixture_index, (spec, cfg) in enumerate(battery):
         for row in run_vanilla(cfg, args.checkpoints):
             rows.append({"fixture": spec.name, **row})
         for row in run_rmplus(cfg, args.checkpoints, args.rmplus_delay):
             rows.append({"fixture": spec.name, **row})
+        fixture_seed = args.external_seed + fixture_index * 1_000_003
+        for row in run_external_sampling(
+            cfg,
+            args.checkpoints,
+            seed=fixture_seed,
+        ):
+            rows.append({"fixture": spec.name, **row})
 
     result = {
-        "benchmark": "deepsix_river_solver_algorithm_battery_v1",
+        "benchmark": "deepsix_river_solver_algorithm_battery_v2",
         "oracle": "dynamic_exact_best_response",
         "machine": {
             "machine": platform.machine(),
@@ -165,9 +221,15 @@ def main() -> int:
         "fixture_count": len(battery),
         "checkpoints": list(args.checkpoints),
         "rmplus_averaging_delay": args.rmplus_delay,
+        "external_sampling_seed_base": args.external_seed,
+        "comparison_boundary": (
+            "iteration count is not equal computational work across full-chance CFR/RM+ "
+            "and external-sampling MCCFR; promotion is based on exact exploitability "
+            "versus wall-clock, then repeated under equal-wall-clock budgets"
+        ),
         "warning": (
-            "synthetic river battery; algorithm promotion requires long Ryzen 9 runs "
-            "and should consider exploitability per wall-clock second, not iteration count alone"
+            "synthetic river battery only; no solver family is promoted to multi-street "
+            "until target-workstation repetitions and held-out tests close"
         ),
         "rows": rows,
         "aggregate_by_checkpoint": {
