@@ -5,6 +5,11 @@ training code must beat these baselines and preserve their invariants before it
 is trusted with long Ryzen runs.
 """
 
+from .experiment_profile import (
+    SOLVER_EXPERIMENT_PROFILE_SCHEMA,
+    SolverExperimentProfile,
+    SolverExperimentProfileError,
+)
 from .kuhn import (
     KuhnCFR,
     KuhnPolicy,
@@ -64,6 +69,9 @@ __all__ = [
     "RiverMultiSizeError",
     "RiverMultiSizePolicy",
     "RiverPolicy",
+    "SOLVER_EXPERIMENT_PROFILE_SCHEMA",
+    "SolverExperimentProfile",
+    "SolverExperimentProfileError",
     "TrainingIterationLease",
     "TrainingSchedulerCheckpointReceipt",
     "TrainingStreamError",
