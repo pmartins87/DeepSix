@@ -16,11 +16,17 @@ Average-strategy accumulation uses a separate own-reach sampler: target-player
 actions are sampled and opponent actions are enumerated.  This mirrors the
 important own-reach idea used by SpinCore without importing its neural network,
 reservoir, action width, ICM utility or 52-card representation.
+
+The checkpoint contract serializes the exact RNG state and every regret/average
+accumulator.  A resumed process must therefore continue the same stochastic
+lineage byte-semantically rather than merely start a statistically similar run.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import hashlib
+import json
 from math import isfinite
 import random
 
@@ -37,6 +43,47 @@ from .river_multisize_one_raise import (
     player_to_act,
     terminal_utility_p0,
 )
+
+
+EXTERNAL_SAMPLING_CHECKPOINT_SCHEMA = "DEEPSIX_RIVER_EXTERNAL_SAMPLING_CHECKPOINT_V1"
+
+
+def _nested_lists(value):
+    if isinstance(value, tuple):
+        return [_nested_lists(item) for item in value]
+    return value
+
+
+def _nested_tuples(value):
+    if isinstance(value, list):
+        return tuple(_nested_tuples(item) for item in value)
+    return value
+
+
+def external_sampling_config_fingerprint(config: RiverMultiSizeOneRaiseConfig) -> str:
+    """Exact semantic identity of the tiny game used by one checkpoint."""
+
+    config.validate()
+
+    def range_payload(rows):
+        return [
+            {
+                "cards": list(item.canonical_cards()),
+                "weight_hex": float(item.weight).hex(),
+            }
+            for item in rows
+        ]
+
+    payload = {
+        "board": list(config.board),
+        "pot": config.pot,
+        "bet_sizes": list(config.bet_sizes),
+        "raise_to": config.raise_to,
+        "p0_range": range_payload(config.p0_range),
+        "p1_range": range_payload(config.p1_range),
+    }
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
 
 
 @dataclass
@@ -221,10 +268,9 @@ class RiverExternalSamplingMCCFR:
         strategy = node.current_strategy()
 
         if actor == target_player:
-            # The probability of arriving here through target-player actions is
-            # already represented by sampling those actions.  Adding sigma
-            # unweighted therefore estimates own-reach-weighted average policy
-            # without squaring the reach probability.
+            # Sampling target actions makes state visitation proportional to
+            # target-player own reach.  Adding sigma unweighted avoids squaring
+            # that reach probability.
             for index, probability in enumerate(strategy):
                 node.strategy_sum[index] += probability
             sampled = self._sample_index(strategy)
@@ -236,8 +282,7 @@ class RiverExternalSamplingMCCFR:
             return
 
         # Opponent reach must not weight the target player's behavioral average;
-        # enumerate opponent branches so each distinct public history can be
-        # sampled according to target-player own reach.
+        # enumerate opponent branches while target-player actions are sampled.
         for action in actions:
             self._collect_average_strategy(
                 deal,
@@ -292,3 +337,162 @@ class RiverExternalSamplingMCCFR:
             for node in self.nodes.values()
             for value in node.regret_sum
         )
+
+    def state_dict(self) -> dict[str, object]:
+        """Return an exact JSON-compatible stochastic/checkpoint state."""
+
+        rows = []
+        for key in sorted(self.nodes):
+            player, cards, history = key
+            node = self.nodes[key]
+            rows.append(
+                {
+                    "player": player,
+                    "cards": list(cards),
+                    "history": list(history),
+                    "action_count": node.action_count,
+                    "regret_hex": [float(value).hex() for value in node.regret_sum],
+                    "strategy_hex": [float(value).hex() for value in node.strategy_sum],
+                }
+            )
+        return {
+            "schema": EXTERNAL_SAMPLING_CHECKPOINT_SCHEMA,
+            "config_sha256": external_sampling_config_fingerprint(self.config),
+            "seed": self.seed,
+            "iterations": self.iterations,
+            "sampled_deals": self.sampled_deals,
+            "regret_nodes_visited": self.regret_nodes_visited,
+            "average_nodes_visited": self.average_nodes_visited,
+            "rng_state": _nested_lists(self.rng.getstate()),
+            "nodes": rows,
+        }
+
+    def checkpoint_json(self) -> str:
+        return json.dumps(
+            self.state_dict(),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
+
+    def checkpoint_sha256(self) -> str:
+        return hashlib.sha256(self.checkpoint_json().encode("utf-8")).hexdigest()
+
+    @classmethod
+    def from_state_dict(
+        cls,
+        config: RiverMultiSizeOneRaiseConfig,
+        payload: dict,
+    ) -> "RiverExternalSamplingMCCFR":
+        expected = {
+            "schema",
+            "config_sha256",
+            "seed",
+            "iterations",
+            "sampled_deals",
+            "regret_nodes_visited",
+            "average_nodes_visited",
+            "rng_state",
+            "nodes",
+        }
+        if set(payload) != expected:
+            raise RiverMultiSizeOneRaiseError("external-sampling checkpoint keys differ from v1")
+        if payload.get("schema") != EXTERNAL_SAMPLING_CHECKPOINT_SCHEMA:
+            raise RiverMultiSizeOneRaiseError("wrong external-sampling checkpoint schema")
+        if payload.get("config_sha256") != external_sampling_config_fingerprint(config):
+            raise RiverMultiSizeOneRaiseError("external-sampling checkpoint/config mismatch")
+
+        seed = payload.get("seed")
+        trainer = cls(config, seed=seed)
+        for counter in (
+            "iterations",
+            "sampled_deals",
+            "regret_nodes_visited",
+            "average_nodes_visited",
+        ):
+            value = payload.get(counter)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise RiverMultiSizeOneRaiseError(f"invalid checkpoint counter {counter}")
+            setattr(trainer, counter, value)
+        if trainer.sampled_deals != trainer.iterations:
+            raise RiverMultiSizeOneRaiseError("sampled-deal count must equal iteration count")
+
+        allowed_cards = {
+            0: {row.canonical_cards() for row in config.p0_range},
+            1: {row.canonical_cards() for row in config.p1_range},
+        }
+        allowed_histories = {
+            0: set(player_histories(config, 0)),
+            1: set(player_histories(config, 1)),
+        }
+        rows = payload.get("nodes")
+        if not isinstance(rows, list):
+            raise RiverMultiSizeOneRaiseError("checkpoint nodes must be a list")
+        seen: set[PolicyKey] = set()
+        for row in rows:
+            if not isinstance(row, dict):
+                raise RiverMultiSizeOneRaiseError("checkpoint node must be an object")
+            if set(row) != {
+                "player",
+                "cards",
+                "history",
+                "action_count",
+                "regret_hex",
+                "strategy_hex",
+            }:
+                raise RiverMultiSizeOneRaiseError("checkpoint node keys differ from v1")
+            player = row["player"]
+            if player not in (0, 1):
+                raise RiverMultiSizeOneRaiseError("checkpoint node player must be 0 or 1")
+            try:
+                cards = tuple(int(value) for value in row["cards"])
+                history = tuple(str(value) for value in row["history"])
+            except (TypeError, ValueError) as exc:
+                raise RiverMultiSizeOneRaiseError("malformed checkpoint node key") from exc
+            if len(cards) != 2 or cards not in allowed_cards[player]:
+                raise RiverMultiSizeOneRaiseError("checkpoint node cards outside player range")
+            if history not in allowed_histories[player]:
+                raise RiverMultiSizeOneRaiseError("checkpoint node history is not a player infoset")
+            key: PolicyKey = (player, cards, history)
+            if key in seen:
+                raise RiverMultiSizeOneRaiseError("duplicate checkpoint infoset")
+            seen.add(key)
+            expected_actions = len(legal_actions(config, history))
+            action_count = row["action_count"]
+            if action_count != expected_actions:
+                raise RiverMultiSizeOneRaiseError("checkpoint node action count mismatch")
+            try:
+                regrets = [float.fromhex(value) for value in row["regret_hex"]]
+                strategies = [float.fromhex(value) for value in row["strategy_hex"]]
+            except (TypeError, ValueError) as exc:
+                raise RiverMultiSizeOneRaiseError("invalid checkpoint float encoding") from exc
+            if len(regrets) != action_count or len(strategies) != action_count:
+                raise RiverMultiSizeOneRaiseError("checkpoint node vector length mismatch")
+            if any(not isfinite(value) for value in regrets + strategies):
+                raise RiverMultiSizeOneRaiseError("checkpoint node contains nonfinite value")
+            if any(value < 0.0 for value in strategies):
+                raise RiverMultiSizeOneRaiseError("checkpoint strategy sum is negative")
+            node = _SamplingNode(action_count)
+            node.regret_sum = regrets
+            node.strategy_sum = strategies
+            trainer.nodes[key] = node
+
+        try:
+            trainer.rng.setstate(_nested_tuples(payload["rng_state"]))
+        except (TypeError, ValueError) as exc:
+            raise RiverMultiSizeOneRaiseError("invalid checkpoint RNG state") from exc
+        return trainer
+
+    @classmethod
+    def from_checkpoint_json(
+        cls,
+        config: RiverMultiSizeOneRaiseConfig,
+        text: str,
+    ) -> "RiverExternalSamplingMCCFR":
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise RiverMultiSizeOneRaiseError("invalid external-sampling checkpoint JSON") from exc
+        if not isinstance(payload, dict):
+            raise RiverMultiSizeOneRaiseError("external-sampling checkpoint must be an object")
+        return cls.from_state_dict(config, payload)
