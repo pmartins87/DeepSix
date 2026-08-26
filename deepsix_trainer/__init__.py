@@ -16,6 +16,15 @@ from .kuhn import (
     exploitability as kuhn_exploitability,
     expected_value as kuhn_expected_value,
 )
+from .reach import (
+    PrivateReachVector,
+    PublicReachState,
+    ReachError,
+    compatible_joint_assignment_count,
+    compatible_joint_mass,
+    direct_public_history_weight,
+    factorized_assignment_weight,
+)
 from .river_external_sampling import RiverExternalSamplingMCCFR
 from .river_microgame import (
     RangeHand,
@@ -58,7 +67,10 @@ __all__ = [
     "KuhnCFR",
     "KuhnPolicy",
     "MultiSizeDeal",
+    "PrivateReachVector",
+    "PublicReachState",
     "RangeHand",
+    "ReachError",
     "RiverCFR",
     "RiverDeal",
     "RiverExternalSamplingMCCFR",
@@ -78,6 +90,10 @@ __all__ = [
     "TrainingStreamKey",
     "TrainingStreamPlan",
     "TrainingStreamScheduler",
+    "compatible_joint_assignment_count",
+    "compatible_joint_mass",
+    "direct_public_history_weight",
+    "factorized_assignment_weight",
     "kuhn_exploitability",
     "kuhn_expected_value",
     "load_training_scheduler_checkpoint",
