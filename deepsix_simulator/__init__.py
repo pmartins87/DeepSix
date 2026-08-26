@@ -48,6 +48,12 @@ from .settlement import (
     SimulatorSettlementError,
     settle_terminal_hand,
 )
+from .soak import (
+    SIMULATOR_SOAK_SCHEMA_VERSION,
+    SimulatorSoakCheckpoint,
+    SimulatorSoakError,
+    SimulatorSoakPlan,
+)
 from .snapshot import (
     SIMULATOR_TABLE_SNAPSHOT_SCHEMA_VERSION,
     SimulatorSnapshotError,
@@ -72,6 +78,7 @@ __all__ = [
     "SIMULATOR_OBSERVATION_SCHEMA_VERSION",
     "SIMULATOR_RULES_VERSION",
     "SIMULATOR_SESSION_SCHEMA_VERSION",
+    "SIMULATOR_SOAK_SCHEMA_VERSION",
     "SIMULATOR_SETTLEMENT_VERSION",
     "SIMULATOR_TABLE_SNAPSHOT_SCHEMA_VERSION",
     "SIMULATOR_TRANSCRIPT_SCHEMA_VERSION",
@@ -91,6 +98,9 @@ __all__ = [
     "SimulatorSessionResult",
     "SimulatorSettlement",
     "SimulatorSettlementError",
+    "SimulatorSoakCheckpoint",
+    "SimulatorSoakError",
+    "SimulatorSoakPlan",
     "SimulatorSnapshotError",
     "SimulatorStepResult",
     "SimulatorTableSnapshot",
