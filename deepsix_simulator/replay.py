@@ -1,9 +1,7 @@
 """Canonical post-hand transcript and exact replay for DeepSix Simulator.
 
-A transcript is an audit artifact, not an agent observation.  It stores the
-seed and therefore must be treated as revealing hidden cards after the hand.
-The seed lets us reproduce the private deal without redundantly serializing all
-hole cards.
+A transcript is an audit artifact, not an agent observation. It stores the seed
+and therefore reveals the private deal to anyone who replays it after the hand.
 """
 
 from __future__ import annotations
@@ -171,8 +169,7 @@ class SimulatorHandTranscript:
                 seed=int(payload["seed"]),
                 dealer_seat=int(payload["dealer_seat"]),
                 starting_stacks=tuple(
-                    (int(item[0]), int(item[1]))
-                    for item in payload["starting_stacks"]
+                    (int(item[0]), int(item[1])) for item in payload["starting_stacks"]
                 ),
                 bbj_enabled=bool(payload["bbj_enabled"]),
                 decisions=tuple(
@@ -207,10 +204,7 @@ class SimulatorHandTranscript:
 
 
 def _private_deal_sha256(hand: SimulatedHand) -> str:
-    payload = {
-        str(seat): list(hand.hole_cards[seat])
-        for seat in sorted(hand.hole_cards)
-    }
+    payload = {str(seat): list(hand.hole_cards[seat]) for seat in sorted(hand.hole_cards)}
     text = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -247,12 +241,11 @@ def settlement_sha256(settlement: SimulatorSettlement) -> str:
 def transcript_from_hand(hand: SimulatedHand) -> SimulatorHandTranscript:
     if not hand.terminal or hand.settlement is None:
         raise SimulatorReplayError("transcript requires a terminal settled hand")
+    # stack-behind + committed_total is invariant for each seat throughout a hand,
+    # so the exact pre-hand stack is recoverable even after settlement is computed.
     starting_stacks = tuple(
         sorted(
-            (
-                player.seat,
-                hand._starting_stacks[player.seat],  # stable audit snapshot
-            )
+            (player.seat, player.stack + player.committed_total)
             for player in hand.state.players
         )
     )
