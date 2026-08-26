@@ -78,8 +78,12 @@ class SimulatorHandTranscript:
             raise SimulatorReplayError("starting stacks must be positive")
         if not isinstance(self.bbj_enabled, bool):
             raise SimulatorReplayError("bbj_enabled must be bool")
-        if len(self.final_board) not in (0, 5):
-            raise SimulatorReplayError("terminal transcript board must contain 0 or 5 cards")
+        # A fold can end the hand on any street. Showdown has five board cards,
+        # while preflop/flop/turn fold terminals legitimately contain 0/3/4.
+        if len(self.final_board) not in (0, 3, 4, 5):
+            raise SimulatorReplayError(
+                "terminal transcript board must contain 0, 3, 4 or 5 cards"
+            )
         if len(self.private_deal_sha256) != 64 or len(self.settlement_sha256) != 64:
             raise SimulatorReplayError("transcript digest must be SHA-256 hex")
         for index, decision in enumerate(self.decisions):
@@ -157,6 +161,8 @@ class SimulatorHandTranscript:
         }
         if set(payload) != expected:
             raise SimulatorReplayError("transcript keys differ from schema v1")
+        if not isinstance(payload.get("bbj_enabled"), bool):
+            raise SimulatorReplayError("bbj_enabled JSON field must be boolean")
         try:
             transcript = cls(
                 schema_version=int(payload["schema_version"]),
@@ -171,7 +177,7 @@ class SimulatorHandTranscript:
                 starting_stacks=tuple(
                     (int(item[0]), int(item[1])) for item in payload["starting_stacks"]
                 ),
-                bbj_enabled=bool(payload["bbj_enabled"]),
+                bbj_enabled=payload["bbj_enabled"],
                 decisions=tuple(
                     SimulatorDecisionRecord(
                         decision_index=int(item["decision_index"]),
