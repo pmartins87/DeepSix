@@ -74,7 +74,10 @@ class SimulatorFuzzTests(unittest.TestCase):
                     sum(value for _, value in settlement.net_awards),
                     settlement.gross_pot_units - settlement.deductions.total_units,
                 )
-                self.assertIn(len(hand.state.board), (0, 5))
+                # A fold can terminate preflop/flop/turn/river. Showdown always
+                # has five cards, but a terminal hand does not need to run unused
+                # future streets merely to satisfy a test artifact.
+                self.assertIn(len(hand.state.board), (0, 3, 4, 5))
 
                 known_cards = [
                     card
