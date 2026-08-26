@@ -1,366 +1,432 @@
 # DeepSix — Roadmap canônico até uma IA autônoma de 6+ / Short Deck no simulador
 
-Última atualização estrutural: 16/08/2026.
+Última atualização estrutural: **25/08/2026**.
 
-O roadmap mede **capacidade validada**, não volume de código. Um item só recebe `PASS` quando existe gate reproduzível. Implementação sem evidência suficiente permanece `PARTIAL`.
+O roadmap mede **capacidade validada**, não volume de código. Um item só recebe `PASS` quando existe gate reproduzível. Código novo cujo CI/soak ainda não fechou permanece `PARTIAL`, mesmo quando a implementação já existe.
 
 ## Objetivo final congelado
 
-O produto primário do DeepSix passa a ser:
+O produto primário do DeepSix é:
 
-> **uma IA autônoma de Cash Game 6+ / Short Deck capaz de jogar sessões completas dentro do nosso próprio simulador, usando uma economia modelada a partir do GGPoker Short Deck e treinada dentro do orçamento real de um Ryzen 9.**
+> **uma IA autônoma de Cash Game 6+ / Short Deck capaz de jogar sessões completas dentro do nosso próprio simulador, usando uma economia versionada modelada a partir do GGPoker Short Deck e treinada dentro do orçamento real de um Ryzen 9.**
 
 A cadeia final é:
 
 ```text
-regras 6+ versionadas
- -> economia GGPoker versionada
- -> simulador determinístico 2..6 jogadores
+rules profile 6+ versionado
+ -> economy profile GGPoker versionado
+ -> simulador determinístico 2..6
  -> estado canônico
- -> abstração de ações/estados escolhida por benchmark
- -> solver multi-street/multiway
+ -> action/state abstraction escolhida por benchmark
+ -> solver multi-street HU
+ -> solver/policy multiway 3..6
  -> blueprint amplo
- -> camada exploratória opcional
- -> policy compilada
+ -> exploração opcional
+ -> policy compiler/runtime
  -> agente autônomo
  -> self-play/avaliação
  -> certificação longa
  -> READY FOR 6+ AUTONOMOUS SIMULATOR
 ```
 
-### O que mudou nesta revisão
+### Decisões arquiteturais congeladas
 
-- **GGPoker substitui KKPoker como referência econômica.**
-- **KKPoker passa a ser apenas material histórico/comparativo.** Nenhum rake/cap/threshold de KKPoker pode entrar silenciosamente no target atual.
-- **O simulador é o ambiente primário de execução.** Tablemap, scraping e automação de cliente real não são requisitos para terminar a IA.
-- O trabalho já feito em OpenHoldem6Plus/reconstrução temporal é preservado em uma trilha auxiliar, pois contém engenharia útil, mas saiu do caminho crítico.
-- O perfil econômico GGPoker é date-versioned. Mudança futura na tabela cria novo profile; não reescreve semanticamente runs antigas.
+- **GGPoker é a referência econômica**, não a plataforma de execução.
+- **O simulador próprio é o ambiente primário da IA.**
+- KKPoker permanece apenas como material histórico/comparativo; nenhum rake/cap/threshold antigo pode contaminar o target atual.
+- OpenHoldem6Plus e reconstrução de cliente são preservados como trilha auxiliar, fora do caminho crítico.
+- Todo profile de regras/economia/settlement é versionado. Mudança futura cria nova versão sem reescrever o significado de runs antigas.
+- Correção e reprodutibilidade precedem escala. Uma run longa não pode começar sobre semântica, abstração ou utility ainda não gated.
 
 ---
 
 # Fase 0 — Contrato do jogo e alvo econômico
 
-**Status: PARTIAL AVANÇADO**
+**Status: PASS para o Simulator Profile v1; OPEN somente para futuras versões/opcionais**
 
-## Já feito
+## Concluído
 
-- target primário redefinido para **simulador próprio**;
-- GGPoker definido como referência econômica do 6+;
-- KKPoker retirado da condição de fallback/target;
-- `SIMULATOR_TARGET_GGPOKER_ECONOMY_V1.md` criado;
-- `TARGET_PLATFORM_GGPOKER_V0.md` preservado como documento histórico/superseded;
-- deck com 36 cartas, apenas 6..A;
-- duas hole cards;
-- cinco community cards;
+- target primário redefinido para simulador próprio;
+- GGPoker definido como referência econômica;
+- KKPoker retirado da condição de target/fallback econômico;
+- `SIMULATOR_TARGET_GGPOKER_ECONOMY_V1.md` criado e atualizado;
+- rules profile versionado `deepsix_shortdeck_sim_rules_2026-08-25_v1`;
+- economy profile versionado `ggpoker_shortdeck_cash_2026-08-16_v1`;
+- settlement profile versionado `deepsix_sim_settlement_2026-08-25_v1`;
+- 36 cartas, ranks 6..A;
+- duas hole cards + cinco community cards;
 - best-five Hold'em;
-- máximo de seis assentos;
+- até seis jogadores;
 - Flush > Full House;
 - A6789 como menor straight;
-- estrutura de jogo capaz de representar ante-based Short Deck;
-- forced bets desacoplados da economia;
-- No-Limit representável;
-- full raise/min-raise estrutural representável;
-- side pots representáveis;
-- rake separado de hand strength;
-- jackpot/promotional deductions separados do rake base.
+- Straight > Trips no evaluator/profile atual;
+- No-Limit;
+- todos os dealt players postam 1 ante;
+- Button/Dealer posta 2 antes totais;
+- action order: primeiro dealt seat à esquerda do Dealer até o Dealer, em todas as streets;
+- simulator v1 mapeia a unidade publicada da stake para 1 ante;
+- preflop initial full-raise increment = 2 antes;
+- postflop minimum bet / initial full-raise increment = 2 antes;
+- short all-in permitido quando é o all-in exato abaixo do minimum full raise;
+- reopen v1 por `CUMULATIVE_FULL_RAISE`;
+- odd chip v1 vai ao primeiro tied winner à esquerda do Dealer e segue clockwise;
+- EV Cashout/RIMT excluídos explicitamente da árvore-base v1;
+- BBJ pode ser ligado/desligado como camada econômica versionada.
 
-## Economia GGPoker já congelada em profile v1
+## Economia GGPoker v1 congelada
 
-A tabela pública observada em 16/08/2026 foi codificada em `deepsix_core.ggpoker_economy`:
+- rake de **5%**;
+- stakes publicadas $0.02 / $0.05 / $0.10 / $0.25 / $0.50 / $1 / $2 / $5 / $10;
+- default buy-in por stake;
+- caps separados para 2 / 3 / 4 / 5+ jogadores;
+- high-stakes caps publicados em BB convertidos exatamente para cents;
+- nenhum no-flop/preflop ou small-pot exemption inventado;
+- BBJ Short Deck separado: 1 ante no threshold de 100 antes;
+- simulator settlement v1 usa floor para converter rake fracionário ao integer money unit.
 
-- rake: **5%**;
-- stakes publicadas: $0.02 / $0.05 / $0.10 / $0.25 / $0.50 / $1 / $2 / $5 / $10;
-- default buy-in publicado por stake;
-- caps distintos para 2 / 3 / 4 / 5+ jogadores;
-- high-stakes caps publicados em BB convertidos exatamente para cents em cada stake;
-- BBJ Short Deck: contribuição separada de **1 ante** a partir do threshold publicado de **100 antes**;
-- profile versionado como `ggpoker_shortdeck_cash_2026-08-16_v1`;
-- nenhum no-flop/preflop ou small-pot exemption foi inventado no profile, pois a tabela pública usada não o publica;
-- rounding do cliente continua deliberadamente não inventado.
+## Futuras extensões, sem bloquear v1
 
-## Ainda falta congelar na especificação do simulador
+- novo economy profile quando a tabela pública mudar;
+- novo rules profile se quisermos espelhar outra convenção de min-raise/reopen;
+- optional profile para RIMT;
+- optional profile para EV Cashout;
+- rewards/leaderboard/cashback apenas como camada econômica separada, se algum experimento justificar.
 
-- confirmar/decidir formalmente o forced-bet profile principal: ante de todos + contribuição total do Button;
-- congelar ordem exata de ação preflop e pós-flop;
-- congelar minimum bet / minimum raise / reopen após short all-ins;
-- confirmar Straight > Trips no profile final de ranking, embora o Core já seja capaz de usar essa ordem;
-- congelar odd-chip rule;
-- decidir se RIMT fará parte do simulador-base ou será módulo opcional;
-- decidir se EV Cashout será modelado como feature opcional;
-- definir quais stakes entram no primeiro blueprint principal;
-- escolher política de rounding do **simulador** para valores fracionários de rake, mantendo a versão registrada;
-- definir se o BBJ será default-on no ambiente principal ou um segundo profile econômico.
-
-**Gate de saída:** `GGPokerShortDeckRulesProfile v1` + `GGPokerShortDeckEconomyProfile v1` totalmente versionados, sem parâmetros ocultos.
+**Gate de manutenção:** qualquer mudança semântica exige nova versão e testes de compatibilidade histórica.
 
 ---
 
 # Fase 1 — Core matemático Short Deck
 
-**Status: PASS para a fundação; OPEN para extensões**
+**Status: PASS para a fundação; manutenção contínua**
 
-## Concluído
+## Concluído e gated
 
-- codec compacto de 36 cartas;
+- codec compacto 0..35;
 - rejeição obrigatória de ranks 2..5 na fronteira legada;
 - 81 starting-hand classes cobrindo exatamente 630 combos;
-- evaluator de 5 cartas;
-- best-of-5 para 6/7 cartas;
+- evaluator 5-card e best-of-5 para 6/7 cards;
 - A6789;
-- ranking Short Deck configurado;
-- auditoria exaustiva das 376.992 mãos de cinco cartas;
-- oracle independente PokerKit;
+- ranking Short Deck;
+- auditoria exaustiva das **376.992** mãos de cinco cartas;
+- contagens analíticas por categoria;
+- oracle independente PokerKit pinado;
 - evaluator C++ baseline;
 - evaluator C++ lookup exato/rápido;
 - paridade Python ↔ C++;
 - equity HU exata para validação;
-- legal actions `FOLD/CHECK/CALL/RAISE_TO`;
+- `FOLD/CHECK/CALL/RAISE_TO`;
+- legal-action boundary;
 - betting-round state machine;
+- full raises;
 - short all-ins;
-- reopen/full-raise architecture;
-- full-hand state machine;
-- forced-bet posting;
-- preflop/flop/turn/river;
-- runout automático quando ninguém pode mais apostar;
-- pot accounting;
-- side-pot accounting;
-- showdown bruto exato;
-- splits mantidos como `Fraction` quando odd-chip não está congelado;
-- canonicalização de hole-card order;
-- canonicalização da ordem do flop;
+- reopen policies explícitas;
+- full-hand state machine `preflop -> flop -> turn -> river -> terminal`;
+- auto-runout quando não existe mais decisão de betting;
+- chip conservation;
+- pot layers/main pot/side pots;
+- folded chips preservados e folded players inelegíveis;
+- showdown exato por pot layer;
+- splits mantidos como `Fraction` no Core;
+- canonicalização de hole order;
+- canonicalização da ordem interna do flop;
 - 24 permutações globais de naipes;
 - chairs relativos ao Dealer;
+- action sizing/history preservados quando estrategicamente distintos;
 - `ReplayFrame`;
 - `DecisionToken`;
-- fingerprints;
-- corrupção detectável;
-- fuzzing determinístico de mãos completas;
-- CI mantendo todos esses gates.
+- semantic/observation fingerprints;
+- detecção de corrupção/tampering;
+- fuzzing determinístico de mãos completas.
 
-## Ainda falta nesta fase
+## Gate de manutenção
 
-- `GGPokerShortDeckRulesProfile` explícito;
-- regression fixtures do simulador usando o profile GGPoker;
-- odd-chip após a regra ser escolhida;
-- optional-feature fixtures para RIMT/EV Cashout caso entrem no target.
-
-**Gate de manutenção:** qualquer evolução do solver/simulador deve continuar passando todos os invariants/oracles desta fase.
+Toda evolução posterior precisa continuar passando evaluator/oracle/invariance/chip-conservation e replay gates. O Python permanece correctness oracle; hot paths futuros podem ser nativos, mas precisam provar paridade.
 
 ---
 
-# Fase 2 — Simulador de mesa 6+ completo
+# Fase 2 — DeepSixSimulator multiagente
 
-**Status: PARTIAL — existe state machine de mão, mas ainda não existe o ambiente multiagente final**
+**Status: PARTIAL AVANÇADO — primeira implementação funcional existe; soak/worker gates ainda abertos**
 
-## Componentes já disponíveis para reutilizar
+## Concluído ou já implementado
 
-- deck/evaluator;
-- betting state machine;
-- full-hand state machine;
-- legal-action engine;
-- stacks/contribuições;
-- all-ins;
-- pot/side-pot accounting;
-- board runout;
-- showdown;
-- canonicalização;
-- deterministic replay primitives;
-- economia exata configurável.
+### Rules + environment
 
-## Falta construir
-
-- `DeepSixSimulator` como boundary estável;
-- `reset(seed, config)`;
-- `observe(player)` com information-set correto;
-- `legal_actions(player)`;
-- `step(action)`;
-- chance/deal transitions explícitas;
-- multi-agent turn ownership;
+- pacote `deepsix_simulator` criado;
+- `SimulatorRulesProfile` versionado;
+- `SimulatedHand` com deck real de 36 cartas;
+- shuffle determinístico por seed;
+- deal round-robin de duas hole cards;
 - 2..6 dealt players;
-- arbitrary asymmetric stacks;
-- Button rotation;
-- player join/leave entre mãos para suites de teste;
-- sit-out apenas se fizer parte do target simulado;
-- persistent bankroll/session accounting;
-- rake/cap por player count;
-- BBJ contribution toggle/profile;
-- hand history canônica do simulador;
-- event log completo;
-- deterministic replay a partir de seed + actions;
-- invalid-action fail-fast;
-- no hidden information leakage no observation API;
-- batch simulation API;
-- vectorized/batched deal generation quando medir ganho real;
-- fault-free long self-play loop;
-- property/fuzz tests de milhares/milhões de mãos.
+- physical seats 0..5 e sparse seats suportados pelo Core;
+- asymmetric starting stacks;
+- seat-local private observation: cada policy vê apenas suas duas hole cards;
+- board, pot, stacks, commitments, folds, all-ins, history e actor como informação pública;
+- opponent hole cards deliberadamente ausentes do observation contract;
+- legal actions expostas somente ao seat que realmente age;
+- out-of-turn action fail-closed;
+- illegal actions rejeitadas pelo Core;
+- automatic flop/turn/river chance transitions;
+- automatic board runout em all-in/dry betting;
+- full closed-loop hand via `play_to_terminal()`;
+- deterministic passive/aggressive policies apenas para validação.
 
-**Gate de saída:** duas a seis políticas simples conseguem jogar sessões completas e reproduzíveis, sem estado ilegal, dinheiro criado/perdido fora das deductions configuradas ou vazamento de informação.
+### Session/table shell
+
+- `DeepSixTable`;
+- published default buy-in como default de sessão;
+- persistent stacks entre mãos;
+- Dealer rotation clockwise;
+- funded-seat filtering;
+- commit de settlement ao bankroll da sessão;
+- encerramento natural quando restar menos de dois funded seats.
+
+### Trainer/worker API
+
+- `DeepSixEnv` dependency-free;
+- `reset(seed)`;
+- `observe(seat)`;
+- `current_observation()`;
+- `legal_actions(seat)`;
+- `step(action)` exatamente uma decisão por chamada;
+- `SimulatorObservation` schema version 1;
+- canonical observation JSON;
+- SHA-256 observation fingerprint;
+- use-before-reset e out-of-turn requests rejeitados.
+
+### Replay/auditoria
+
+- `SimulatorHandTranscript` schema v1;
+- canonical JSON;
+- seed + starting stacks + Dealer + action sequence;
+- private-deal SHA-256;
+- settlement SHA-256;
+- transcript fingerprint;
+- exact replay a partir da seed;
+- actor sequence verificada;
+- board, hidden deal e settlement comparados por digest;
+- tampering de seed/actor rejeitado;
+- fold terminal suportado preflop/flop/turn/river.
+
+### Session evidence
+
+- `run_seeded_session()` single-process;
+- explicit seed schedule;
+- per-hand transcript fingerprint;
+- accumulated decisions/gross pot/rake/BBJ;
+- final stacks;
+- session canonical JSON/fingerprint;
+- session-level bankroll conservation.
+
+### Gates de robustness já adicionados
+
+- deterministic equal-seed deal;
+- hidden-information boundary;
+- passive checkdown;
+- all-in auto-runout;
+- 2..6-player randomized trajectories;
+- asymmetric stacks;
+- randomized legal fold/call/check/min-raise/max-raise choices;
+- main/side-pot adversarial fixture;
+- tied-pot odd-chip fixture;
+- deterministic replay subset;
+- aggregate chip/money conservation.
+
+Durante esses gates apareceram duas fixtures erradas, e os testes foram corrigidos em vez de relaxar o motor:
+
+1. um fold pós-flop é terminal legítimo com board de 3/4 cards; exigir somente board 0/5 era um invariant artificial;
+2. `67` em board `AKQ98` forma **A6789**, portanto a mão corretamente ganhava de trips no teste de side pot. A fixture foi substituída por uma mão que realmente perde.
+
+## Falta para F2 PASS
+
+- fechar CI verde do head que contém fuzz + side-pot + replay corrections + session runner;
+- ampliar fuzz de dezenas para milhares/milhões de mãos fora do CI curto;
+- long soak com zero divergência de accounting/state/replay;
+- benchmark de hands/s e decisions/s do simulator puro;
+- peak memory measurement;
+- session snapshot/resume após interrupção;
+- join/leave/sit-out semantics, se forem necessárias ao simulador de cash longo;
+- rebuy/top-up policy explícita para sessões que devam manter player count constante;
+- batch worker API multiprocess depois de medir a versão single-process;
+- deterministic shard/seed allocation entre workers;
+- crash-safe run manifest;
+- armazenar transcripts completos apenas por amostragem/erro para não explodir I/O em runs longas;
+- stress específico de 6-way com stacks muito desiguais;
+- adversarial short-all-in/reopen sequences geradas automaticamente;
+- property tests para every pot-layer conservation sob 2..6 players.
+
+**Gate de saída:** simulador consegue executar e reproduzir sessões longas 2..6 sem state/accounting divergence e com throughput/memória medidos.
 
 ---
 
-# Fase 3 — Economia GGPoker e settlement final
+# Fase 3 — Economia e settlement GGPoker-reference
 
-**Status: PARTIAL AVANÇADO**
+**Status: PARTIAL AVANÇADO — settlement v1 implementado; utility/long-run gates abertos**
 
-## Concluído
+## Concluído ou implementado
 
-- `RakeConfig`;
-- `compute_exact_rake()` com `Fraction`;
-- rate/cap exatos;
-- threshold opcional;
-- preflop exemption opcional;
-- table-size multiplier opcional;
-- `requires_rounding`;
-- helper genérico Short Deck;
-- módulo `deepsix_core.ggpoker_economy`;
-- nove stakes GGPoker publicadas codificadas;
-- default buy-ins codificados;
-- caps 2/3/4/5+ codificados;
-- high-stakes BB caps convertidos exatamente para cents;
-- rake GGPoker 5% profile;
-- BBJ contribution `>=100 antes -> 1 ante` separada;
-- testes de schedule/caps/threshold/erros.
+- `RakeConfig` genérico;
+- rational `Fraction` calculations;
+- `ggpoker_shortdeck_rake_config()`;
+- 5% + player-count cap;
+- nine frozen stakes;
+- published default buy-ins;
+- no undocumented exemptions;
+- `ggpoker_shortdeck_bbj_contribution()`;
+- BBJ separável on/off;
+- gross showdown por pot layer;
+- integer odd-chip settlement v1;
+- floor rake rounding v1;
+- aggregate house deductions;
+- deterministic pro-rata/largest-remainder allocation aos gross winners;
+- post-hand stack accounting;
+- conservation identity:
 
-## Ainda falta
+```text
+sum(final player stacks)
+= sum(initial player stacks)
+- rounded rake
+- BBJ
+```
 
-- policy de rounding do simulador;
-- settlement `gross pot -> rake -> BBJ -> net pot` em uma API única;
-- side-pot deductions policy se rake/BBJ precisarem ser alocados por pote;
-- odd-chip policy;
-- tests de conservation sob splits/side pots;
-- utility interface usada pelo solver;
-- decidir se economia será tratada por hand payoff líquido ou por session bankroll delta;
-- definir métrica para multiplayer non-zero-sum com house deductions;
-- optional EV Cashout 1% somente se escolhido;
-- rewards/cashback/leaderboard somente como camada secundária, nunca misturados silenciosamente ao base game.
+- side-pot test com main winner diferente do side winner;
+- odd-chip tie test.
 
-**Gate de saída:** toda mão do simulador fecha com accounting exato e versionado sob a economia GGPoker escolhida.
+## Falta para fechar a camada estratégica
+
+- utility adapter explícito para trainer: per-seat chip delta antes/depois da mão;
+- utility normalization por ante/pot quando necessária;
+- distinguir game-theoretic zero-sum subgames de full cash utility com house deductions;
+- definir métrica multi-player quando soma das utilities dos jogadores é negativa pelo rake;
+- rake-aware benchmark baselines;
+- held-out economic regression across all nine stakes/player counts;
+- long-session accounting soak;
+- testar cap transitions e BBJ threshold em random runs;
+- decidir quais economy profiles entram no blueprint principal e quais ficam apenas para cross-stake evaluation.
+
+**Gate de saída:** todo terminal do simulator gera utility por seat reproduzível e adequada ao método de solução/avaliação escolhido.
 
 ---
 
-# Fase 4 — Laboratório de abstração, ações e solver
+# Fase 4 — Laboratório de ação, estado e solver
 
-**Status: IN PROGRESS — infraestrutura madura; benchmark Ryzen real ainda pendente**
+**Status: IN PROGRESS — infraestrutura madura; primeira bateria Ryzen real ainda pendente**
 
 ## Concluído
-
-### Baselines/oracles
 
 - Kuhn CFR com valor/exploitability conhecidos;
-- river microgame Short Deck usando ranges/evaluator reais;
+- river microgame Short Deck com ranges/evaluator reais;
 - exact best response por private hand;
-- brute-force oracle para jogos pequenos;
-- Dynamic Exact Best Response por programação dinâmica;
-- DP BR gated contra o enumerador em S=1/S=2, políticas uniformes/treinadas e ranges ponderados.
-
-### Action abstraction
-
-- river 1..4 initial bet sizings sem raise;
-- custo marginal de action width;
+- 1..4 initial bet sizings sem raise;
+- benchmark de custo marginal da largura de ação;
 - one-raise com bet fixo + raise-to;
-- benchmark `no_raise -> one_raise`;
+- exact BR one-raise auditada contra brute force;
 - multi-size + one-raise;
-- custo enumerativo `(1+S)6^S` explicitado;
-- linha escalável 1..4 sizings + um raise usando exact DP BR.
-
-### Private-state abstraction
-
-- `BucketedRiverCFR`;
-- política abstrata expandida novamente para combos exatos antes da avaliação;
-- avaliação sempre no jogo original não abstraído;
-- identity bucket reproduz CFR não abstraído;
-- `single`;
-- `showdown_category`;
-- conditional-equity quantiles blocker-aware;
-- range equity;
+- custo enumerativo explicitado;
+- Dynamic Exact Best Response por programação dinâmica;
+- DP BR gated contra enumerador;
+- scalable 1..4 sizings + one raise;
+- private-state abstraction lab;
+- policy abstrata expandida e julgada no jogo original não abstraído;
+- identity bucket equivalence;
+- single bucket;
+- showdown-category;
+- conditional equity quantiles blocker-aware;
+- exact range equity;
 - universal equity;
 - nutness;
 - blocked range weight;
 - blocked stronger range weight;
-- `feature_borda_quantile`;
-- uniform-reference counterfactual values;
+- equity+nutness+blocker Borda features;
+- uniform-reference counterfactual value vectors;
 - deterministic CFV k-medoids;
-- gate analítico com incentivos opostos FOLD/CALL.
-
-### Benchmarking
-
-- River Benchmark Battery v3;
-- seis board textures;
-- ranges sintéticos gerados mecanicamente;
-- mean/median/worst exact exploitability/pot;
-- nodes/action slots;
-- throughput;
-- `mapping_build_seconds` separado do training cost;
-- State-Abstraction Convergence v1;
-- checkpoints cumulativos;
+- six-texture River Benchmark Battery;
+- separate mapping-build cost;
+- State-Abstraction Convergence;
+- cumulative checkpoints;
 - cumulative wall-clock;
-- Pareto por checkpoint;
+- exact exploitability/pot at checkpoints;
 - synchronous Regret-Matching+;
-- regrets RM+ truncados em zero;
-- average-strategy delay/peso configurável;
-- determinismo/resumibilidade;
-- benchmark CFR vs RM+ no mesmo oracle;
+- nonnegative regret clipping;
+- average strategy delay/weighting;
+- deterministic/resumable solver runs;
+- CFR vs RM+ benchmark under same oracle;
 - Ryzen Benchmark Protocol v2;
-- manifest com commit/máquina/comandos/logs/hashes;
-- analyzer com SHA-256 verification;
-- compatibilidade com manifests v1;
-- Pareto apenas entre objetos matematicamente comparáveis;
-- CI cobrindo os gates.
+- five benchmark families in one hashable manifest;
+- SHA-256 verification before analysis;
+- Pareto only among mathematically comparable objects;
+- legacy manifest compatibility.
 
-## Falta imediatamente
+## Próximo gate imediato desta fase
 
-1. executar no Ryzen 9:
+No Ryzen 9:
 
 ```text
 python tools/run_ryzen_benchmark_suite.py --profile engineering
 ```
 
-2. analisar erro x wall-clock x nós x mapping cost;
-3. repetir candidatos próximos da fronteira;
-4. decidir CFV vs equity/blocker families;
-5. decidir CFR vs RM+ por custo real;
-6. decidir se equal-wall-clock benchmark é necessário;
-7. testar multiple raise sizes;
-8. testar re-raise se comprar força suficiente;
-9. medir stack-to-pot sensitivity;
-10. medir RAM por infoset e throughput multi-core;
-11. serialization/resume de runs longas;
-12. substituir gradualmente ranges artificiais por distribuições geradas pelo próprio simulador multi-street.
+Depois:
 
-**Gate de saída:** action/state/solver family escolhida por evidência reproduzível no Ryzen 9.
+```text
+python tools/analyze_ryzen_benchmark_suite.py benchmark_runs/<RUN> --output analysis.json
+```
+
+## Falta para F4 PASS
+
+- primeira engineering run real;
+- repetir candidatos próximos da fronteira;
+- escolher/rejeitar CFV vs equity/blocker baselines;
+- escolher CFR vs RM+ por erro por wall-clock;
+- equal-wall-clock battery somente se os dados mostrarem necessidade;
+- multiple raise sizes;
+- re-raise layer se comprar qualidade suficiente;
+- board-texture sensitivity;
+- stack-to-pot sensitivity;
+- skewed/weighted ranges;
+- out-of-fixture generalization;
+- memory per million infosets;
+- multi-core throughput no Ryzen;
+- long-run serialization/resume;
+- regressão matemática entre commits;
+- substituir ranges sintéticos por distribuições provenientes do próprio simulador conforme F2 amadurecer.
+
+**Gate de saída:** família de action/state abstraction + solver escolhida por evidência reproduzível no Ryzen.
 
 ---
 
-# Fase 5 — Solver multi-street HU / primeiro blueprint
+# Fase 5 — Primeiro solver multi-street / Blueprint HU
 
 **Status: NOT STARTED**
 
+## Objetivo
+
+Resolver decisões conectadas entre preflop, flop, turn e river, usando o simulator/runtime contracts reais em vez de um river lab isolado.
+
 ## Falta fazer
 
-- public-state representation preflop/flop/turn/river;
-- chance transitions;
-- canonicalização consistente entre streets;
+- public-state representation multi-street;
+- chance transitions compatíveis com simulator;
+- canonicalização entre streets;
 - stack/pot/to-call/min-raise/SPR features;
-- preflop limp/open/raise/jam abstraction;
-- flop/turn/river bet/check/raise abstractions;
-- multiple raise sizes onde aprovados na Fase 4;
+- preflop limp/raise/jam tree;
+- postflop bet/check/raise/re-raise action abstraction;
+- sizing sets dependentes de SPR/public state;
 - private abstraction por street;
-- bucket transitions;
-- range propagation;
-- reach probabilities;
-- economy-aware terminal utility;
-- solver escolhido na Fase 4;
-- sampling scheme se necessário;
-- checkpoint/resume;
+- bucket transition/refinement;
+- terminal utility adapter da F3;
+- solver escolhido na F4;
+- chance/external/outcome sampling se justificado;
 - deterministic seeds;
+- checkpoint/resume;
 - compression/serialization;
-- local exact subgame oracles;
-- held-out subgame evaluation;
-- baseline policies simples;
+- exact local subgames como auditoria;
+- held-out boards/ranges/stacks;
+- benchmark por CPU-hour;
 - blueprint HU inicial;
-- comparação fora do treino.
+- simple-policy baseline para medir ganho.
 
-**Gate de saída:** blueprint HU multi-street supera baselines simples e possui custo/erro medidos.
+**Gate de saída:** blueprint HU preflop→river supera baselines fora do treino, com erro, custo, coverage e reprodução medidos.
 
 ---
 
@@ -368,96 +434,95 @@ python tools/run_ryzen_benchmark_suite.py --profile engineering
 
 **Status: NOT STARTED**
 
+## Objetivo
+
+Cobrir a parte estruturalmente mais difícil do target: cash 6+ multiway, com folds, all-ins, side pots, stacks e rake.
+
 ## Falta fazer
 
-- state representation 3+ players;
-- action ordering multiway;
-- folds/elimination;
-- arbitrary stack asymmetry;
-- side pots dentro do solver;
-- all-in runouts;
-- 2..6 player starting configurations;
-- only-valid position/chair symmetries;
-- chance reach multiway;
-- range representation multi-player;
-- solver/regret method apropriado para multiplayer;
-- métrica de qualidade que não finja two-player zero-sum;
-- NashConv/exploitability surrogate onde aplicável;
-- GGPoker rake/cap/deductions dentro da utility;
+- multi-player public/private state representation;
+- fold/elimination order;
+- asymmetric stacks;
+- 2..6-player starting configurations;
+- side pots no solver/utility;
+- all-in chance runouts;
+- valid positional/chair symmetries only;
+- multiplayer regret/learning method apropriado;
+- NashConv/exploitability surrogate apropriada ao setting;
+- non-constant-sum rake utility;
 - sparse/adaptive traversal;
-- CPU prioritization por reach/error/EV;
-- curriculum HU -> 3-way -> 4-way -> 5/6-way;
-- stack-depth curriculum;
+- reach/EV/error-based state prioritization;
+- progressive HU -> 3w -> 4w -> 5w -> 6w expansion;
+- stack/pot curriculum;
+- player-count cross-validation;
 - memory-pressure benchmark;
-- shard layout;
-- checkpoint layout para meses de treino;
-- cross-seat/cross-player-count evaluation.
+- shard layout para months-long runs;
+- cross-seat fairness/invariance tests;
+- policies robustas a player count variável no meio de sessões.
 
-**Gate de saída:** política 2..6 jogadores robusta, sem reduzir falsamente multiway a HU.
+**Gate de saída:** política multiway robusta e avaliada para 2..6 jogadores sem usar equivalências falsas com HU.
 
 ---
 
-# Fase 7 — Blueprint amplo e treinamento longo no Ryzen 9
+# Fase 7 — Estratégia-base completa e treinamento longo no Ryzen
 
 **Status: NOT STARTED**
 
+## Objetivo
+
+Transformar a arquitetura vencedora em um blueprint amplo usando semanas/meses de CPU de forma recuperável e mensurável.
+
 ## Falta fazer
 
-- definir coverage target de stacks/player counts/stakes;
-- definir CPU/RAM/disk budget;
-- job scheduler;
-- multi-core scaling;
-- resumibilidade após reboot/falha;
-- queues/shards;
-- deterministic job manifests;
+- coverage target de stacks/player counts/stakes;
+- CPU/RAM/disk budget;
+- scheduler de jobs;
+- deterministic shard manifests;
+- resumability após reboot/falha;
+- checkpoint integrity hashes;
 - prioritized state refinement;
-- error heatmaps;
-- coverage heatmaps;
-- targeted resampling de rare/high-EV states;
+- error/coverage heatmaps;
+- rare-but-high-EV resampling;
 - held-out validation states;
 - periodic frozen checkpoints;
-- regression rollback;
+- rollback de regressões;
 - artifact compaction;
-- policy distillation apenas se reduzir custo sem perda importante;
-- selecionar blueprint final por suites out-of-sample;
-- long-run reproducibility.
+- policy distillation somente se comprar memória/latência sem perda relevante;
+- final blueprint selection por out-of-sample suites;
+- monitorar ganho marginal por CPU-hour e interromper regiões saturadas.
 
-**Gate de saída:** blueprint amplo e estável, com cobertura e força mensuradas.
+**Gate de saída:** blueprint amplo com coverage/força mensurados e artifacts reproduzíveis prontos para runtime.
 
 ---
 
-# Fase 8 — Population model e exploração
+# Fase 8 — Population model e exploração separada
 
-**Status: NOT STARTED**
+**Status: NOT STARTED / OPTIONAL PARA PRIMEIRO AGENTE FORTE**
 
-## Princípio
+A estratégia-base precisa funcionar sem exploração. Exploit overlay nunca pode ser requisito para segurança funcional.
 
-A estratégia-base continua separada da exploração. A camada exploit nunca deve ser necessária para que a IA seja considerada funcional.
+## Fontes válidas para o target
 
-## Fontes válidas para o target atual
-
-- populações sintéticas do simulador;
-- pools de agentes congelados;
-- hand datasets offline/permitted quando existirem;
-- self-play checkpoints históricos.
+- populações sintéticas no simulador;
+- pools de agents frozen;
+- historical self-play checkpoints;
+- datasets offline/permitted quando existirem.
 
 ## Falta fazer
 
 - opponent/population schema;
-- action frequencies por state abstraction;
+- frequencies por abstract state/action;
 - confidence intervals;
-- Bayesian/shrinkage fallback;
+- shrinkage/Bayesian fallback;
 - archetypes/clusters;
 - sizing tendencies;
-- fold/call/raise deviations;
-- preflop frequencies;
-- postflop deviations;
-- exploit policy bounded por confiança;
-- fallback automático para base policy;
+- preflop/postflop deviations;
+- bounded exploit policy;
+- automatic fallback to base policy;
 - out-of-sample evaluation;
-- robustness contra adversário não modelado;
+- adversarial robustness;
 - anti-overfit limits;
-- `base_policy` e `exploit_overlay` artefatos separados.
+- separated `base_policy` and `exploit_overlay` artifacts.
 
 **Gate de saída:** ganho out-of-sample demonstrado sem regressão grave de robustez.
 
@@ -469,53 +534,55 @@ A estratégia-base continua separada da exploração. A camada exploit nunca dev
 
 ## Falta fazer
 
-- policy file format versionado;
-- metadata de rules/economy/model version;
+- versioned policy file format;
+- rules/economy/solver metadata;
 - canonical state key;
 - exact/abstract lookup;
 - action distribution retrieval;
-- deterministic RNG por seed/decision token quando sampling for usado;
-- fallback para estado fora de coverage;
+- deterministic RNG por decision token quando sampling for usado;
+- uncovered-state fallback;
 - cache/memory mapping;
 - startup hash validation;
 - corruption detection;
-- load-time compatibility gates;
+- load-time compatibility gate;
 - p50/p95/p99 query latency;
-- timeout behavior;
-- explain log;
-- byte-for-byte replay da mesma decisão;
-- runtime ↔ simulator version compatibility.
+- timeout/fail-closed behavior;
+- explain/decision trace;
+- byte-for-byte replay da query;
+- runtime↔simulator version contract;
+- policy hot/cold loading apenas se necessário.
 
-**Gate de saída:** `simulator observation -> canonical state -> audited action distribution` determinístico dentro do budget de latência.
+**Gate de saída:** `SimulatorObservation -> canonical state -> audited action distribution` dentro do latency budget e reproduzível.
 
 ---
 
 # Fase 10 — Agente autônomo em closed loop no simulador
 
-**Status: NOT STARTED**
+**Status: NOT STARTED, embora F2 já prove closed-loop com policies de teste**
+
+Aqui o agente passa a usar a **policy estratégica treinada**, não baselines mecânicos de validação.
 
 ## Falta fazer
 
-- agent interface;
+- agent interface ligada ao policy runtime;
 - self-play seat assignment;
-- fold/check/call/raise-to submission;
-- action legality enforcement;
-- state-before-action fingerprint;
-- state-after-action confirmation;
-- full session loop;
-- multiple simultaneous agent policies;
-- policy-vs-baseline tables;
 - policy-vs-policy tables;
+- policy-vs-baseline tables;
+- full cash sessions;
 - bankroll/session accounting;
-- reconnect/restart of simulation workers;
-- bad/unknown state fail-closed;
-- corrupted policy rejection;
-- delayed worker result handling;
+- rebuy/top-up/session policy escolhida;
+- simultaneous workers;
+- deterministic worker seed schedule;
+- crash/restart recovery;
+- bad state fail-closed;
+- corrupted/stale policy rejection;
 - deterministic session replay;
-- long soak tests;
-- millions-of-hands stability tests.
+- long soak;
+- millions-of-hands stability;
+- decision-latency monitoring;
+- transcript sampling on errors/outliers.
 
-**Gate de saída:** a IA joga autonomamente sessões longas completas de 6+ no simulador sem erro de estado/ação/accounting.
+**Gate de saída:** a IA estratégica joga autonomamente sessões longas completas 2..6 no simulador sem erro de estado/ação/accounting.
 
 ---
 
@@ -527,27 +594,27 @@ A estratégia-base continua separada da exploração. A camada exploit nunca dev
 
 - baseline tournaments;
 - frozen-policy A/B;
-- cross-check contra exact/local solvers em subgames;
+- exact/local solver cross-check in tractable subgames;
 - strategy invariance audit;
-- NashConv/exploitability proxies onde matematicamente válidos;
+- exploitability/NashConv proxies onde válidos;
 - head-to-head confidence intervals;
 - multiway evaluation protocol;
 - GGPoker-rake-aware win-rate simulation;
 - bankroll/variance simulation;
-- stress por 2..6 players;
+- stress 2..6 players;
 - stress por stack depth;
-- stress por stake/economy profile;
+- stress por economy profile/stake;
 - rare-state audit;
-- adversarial action sequences;
-- memory/disk stress;
+- adversarial action sequence audit;
+- latency/memory/disk stress;
 - restart/resume certification;
 - version rollback;
 - independent deterministic replay audit;
 - reproducibility package;
 - final release manifest;
-- freeze de rules/economy/policy hashes.
+- freeze dos hashes de rules/economy/settlement/policy/runtime.
 
-**Gate de saída:** somente aqui o projeto recebe:
+**Gate de saída final:** somente aqui o projeto recebe:
 
 ```text
 READY FOR 6+ AUTONOMOUS SIMULATOR
@@ -555,136 +622,123 @@ READY FOR 6+ AUTONOMOUS SIMULATOR
 
 ---
 
-# Trilha auxiliar A — OpenHoldem6Plus e observação de cliente
+# Trilha auxiliar A — OpenHoldem6Plus / observação de cliente
 
-**Status: PARTIAL AVANÇADO — PRESERVADA, FORA DO CAMINHO CRÍTICO**
+**Status: PARTIAL AVANÇADO — preservada, fora do caminho crítico**
 
-Este trabalho já foi feito e não será apagado, porém não bloqueia a IA de simulador.
+## Já feito
 
-## Concluído
-
-- branch dedicada `myoh_private:deepsix_6plus`;
-- auditoria de premissas 52-card/SB-BB/1326/2652/prwin;
+- repo operacional `pmartins87/myoh_private`;
+- branch dedicada `deepsix_6plus`;
+- provenance/upstream pin;
+- migration map 52-card/SB-BB/1326/2652/prwin/dealposition;
 - `ShortDeckRules` C++;
-- `TableObservation` C++;
-- validator;
-- JSON canônico;
+- `TableObservation`/validator/JSON;
 - `RawTableSnapshot` read-only;
 - raw schema v2;
-- `hero_myturnbits`/`hero_sitting_in` tratados como evidência;
-- parser Python;
-- cross-repo C++ -> JSON -> Python contracts;
-- workflow CI;
-- observe/replay-first architecture.
-
-## Reconstrução temporal concluída/parcial
-
-- raw-chair -> strategic-seat;
-- decimal money -> integer units;
+- myturnbits/sitting-in como evidência;
+- Python mirror;
+- cross-repo C++ -> JSON -> Python contract;
 - stable-frame gate;
-- conservative transition classification;
-- `RawEvidenceTimeline`;
-- inferência segura de CALL;
-- short all-in CALL;
-- exact RAISE_TO quando único;
-- recusa de inventar CHECK/FOLD;
-- forced-bet baseline detector;
-- hand epochs;
-- ambiguity taint;
-- `RawObservationPipeline` end-to-end sintético.
+- conservative raw timeline;
+- exact CALL/short-call/RAISE_TO inference quando unambiguous;
+- refusal to invent CHECK/FOLD;
+- hand-start baseline/epochs;
+- observe/replay-first architecture;
+- dedicated CI.
 
-## Se retomarmos essa trilha no futuro
+## Se retomarmos no futuro
 
-Faltariam tablemap/layout real, CHECK/FOLD evidence, animation timing, side-pot/payout timing, build Windows/soak e outros detalhes de integração. **Nada disso é requisito para `READY FOR 6+ AUTONOMOUS SIMULATOR`.**
+Faltariam target-specific tablemap/layout, animation timing, exact CHECK/FOLD evidence, UI/session details, build/soak e outros itens. Nada disso bloqueia `READY FOR 6+ AUTONOMOUS SIMULATOR`.
 
 ---
 
-# Trilha auxiliar B — Evidência externa de regras GGPoker
+# Trilha auxiliar B — Evidência externa de GGPoker
 
-**Status: OPTIONAL/PARTIAL**
+**Status: OPTIONAL**
 
-O simulador pode avançar com um profile explícito e versionado. Ainda assim, material oficial/replays permitidos podem ser usados para melhorar fidelidade.
+Pode melhorar a fidelidade de futuras versões de rules/economy, mas não bloqueia o profile v1 porque as convenções do simulador são explícitas e versionadas.
 
 Útil para:
 
-- forced-bet/button semantics;
-- min-raise/reopen edge cases;
-- Straight x Trips confirmation;
-- rounding real;
+- mudanças futuras de rake/caps/BBJ;
+- live-client min-raise/reopen comparison;
 - optional features;
-- mudanças futuras de rake/caps/jackpot.
+- production rounding comparison;
+- ranking/rule documentation changes.
 
-Qualquer descoberta cria uma nova versão da spec/economy quando alterar semântica. Runs antigas permanecem reproduzíveis.
+Qualquer alteração semântica gera profile novo; runs v1 continuam reproduzíveis.
 
 ---
 
 # Onde estamos agora
 
 ```text
-F0  Contrato/regras/economia target     PARTIAL+  ███████░░░
-F1  Core matemático                     PASS      ██████████
-F2  Simulador multiagente               PARTIAL   ████░░░░░░
-F3  Economia/settlement GGPoker         PARTIAL+  ███████░░░
-F4  Lab abstração/solver                IN PROG   ████████░░
-F5  Blueprint HU multi-street           NOT START ░░░░░░░░░░
-F6  Multiway 3-6 jogadores              NOT START ░░░░░░░░░░
-F7  Treino longo blueprint              NOT START ░░░░░░░░░░
-F8  Population/exploit                  NOT START ░░░░░░░░░░
-F9  Policy compiler/runtime             NOT START ░░░░░░░░░░
-F10 Closed-loop autonomous simulator    NOT START ░░░░░░░░░░
-F11 Certificação/release                NOT START ░░░░░░░░░░
-A   OH6Plus/real-client observation     SIDE      ███████░░░
-B   External GGPoker rule validation    OPTIONAL  ███░░░░░░░
+F0  Rules/economy contract v1          PASS       ██████████
+F1  Core matemático                    PASS       ██████████
+F2  Simulador multiagente              PARTIAL+   ███████░░░
+F3  Economia/settlement utility        PARTIAL+   ████████░░
+F4  Lab abstração/solver               IN PROG    ████████░░
+F5  Blueprint HU multi-street          NOT START  ░░░░░░░░░░
+F6  Multiway 3-6                       NOT START  ░░░░░░░░░░
+F7  Treino longo blueprint             NOT START  ░░░░░░░░░░
+F8  Population/exploit                 OPTIONAL   ░░░░░░░░░░
+F9  Policy compiler/runtime            NOT START  ░░░░░░░░░░
+F10 Agente estratégico closed-loop     NOT START  ░░░░░░░░░░
+F11 Certificação/release               NOT START  ░░░░░░░░░░
+A   OH6Plus/real-client observation    SIDE       ███████░░░
+B   External GGPoker validation        OPTIONAL   ███░░░░░░░
 ```
 
-As barras representam maturidade aproximada dentro de cada fase, não percentual matemático do projeto.
+As barras representam maturidade aproximada da fase, não percentual matemático do projeto.
 
-## Leitura correta do progresso
+## Leitura correta
 
-O projeto já tem uma fundação matemática e de validação muito acima de um protótipo inicial. O river lab também já possui oracles, abstrações e benchmarking sofisticados. O que **ainda não existe** é justamente a parte que transforma isso em uma IA completa de cash game: simulador multiagente final, solver multi-street, multiway 3..6, blueprint amplo e closed-loop autonomous agent.
+Já temos mais do que infraestrutura matemática: existe agora o **primeiro ambiente que realmente distribui cartas, recebe decisões de múltiplos agents, percorre preflop/flop/turn/river, resolve all-ins/side pots, cobra a economia GGPoker-reference, atualiza stacks e reproduz a mão por transcript/seed**.
 
-Portanto não estamos “quase prontos”, mas também não estamos começando: boa parte do risco de regra/evaluator/abstraction auditing já foi atacada antes de gastar meses de CPU.
+Ainda não temos a IA estratégica final. O principal artefato faltante continua sendo o blueprint multi-street/multiway. F2 e F3 precisam fechar seus soak/utility gates; F4 precisa produzir a primeira evidência real do Ryzen; então F5 pode começar sobre uma base que sabemos ser correta.
 
 ---
 
 # Caminho crítico atual
 
 ```text
-1. congelar RulesProfile + EconomyProfile do simulador
-           |
-           +-> finalizar DeepSixSimulator 2..6
-           |
-2. Ryzen engineering benchmark
-           |
-3. escolher action/state/solver family
-           |
-4. construir blueprint HU multi-street
-           |
-5. expandir 3-way -> 4-way -> 5/6-way
-           |
-6. treino longo + refinement
-           |
-7. policy compiler/runtime
-           |
-8. autonomous self-play closed loop
-           |
-9. certification
-           |
-READY FOR 6+ AUTONOMOUS SIMULATOR
+A. F2 simulator hardening
+   current CI/fuzz
+    -> larger deterministic fuzz
+    -> session snapshot/resume
+    -> throughput/memory benchmark
+    -> long soak
+
+B. F4 architecture decision
+   Ryzen engineering run
+    -> analyzer/Pareto
+    -> repeat close candidates
+    -> freeze solver/action/state family
+
+C. F3 utility adapter
+   settlement per seat
+    -> normalized trainer utility
+    -> multiplayer/rake-aware metric
+
+D. F5/F6 strategy
+   HU multi-street
+    -> 3-way
+    -> 4-way
+    -> 5/6-way
+
+E. F7/F9/F10
+   long blueprint training
+    -> policy compiler
+    -> strategic closed-loop self-play
+    -> certification
 ```
 
-## Próximos dois gates com maior valor
+## Próximos gates imediatos
 
-### Gate estratégico
+1. fechar o CI dos novos simulator fuzz/side-pot/session gates;
+2. executar o Ryzen `--profile engineering` e preservar a pasta completa de evidência;
+3. criar o utility adapter do simulator settlement para o trainer;
+4. depois iniciar a representação multi-street HU.
 
-```text
-python tools/run_ryzen_benchmark_suite.py --profile engineering
-```
-
-Isso fornece a primeira fronteira real de custo/erro no hardware-alvo antes de escolhermos a arquitetura que receberá meses de treino.
-
-### Gate de ambiente
-
-Construir a primeira versão do `DeepSixSimulator` sobre o Core já existente e usar o novo `ggpoker_shortdeck_cash_2026-08-16_v1` como economia configurável.
-
-Esses dois caminhos podem avançar em paralelo. Não precisamos mais esperar tablemap, captura KKPoker ou integração com cliente real para chegar à IA completa de 6+ no simulador.
+Uma run de semanas/meses só começa quando F4 escolher a arquitetura por evidência e F2/F3 estiverem suficientemente estáveis para que o trainer não aprenda sobre um ambiente contabilmente errado.
