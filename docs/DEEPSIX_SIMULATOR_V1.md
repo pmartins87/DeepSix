@@ -1,137 +1,171 @@
 # DeepSix Simulator v1
 
-Status: **critical-path implementation**  
+Status: **critical-path implementation / F2 PARTIAL+**  
 Rules profile: `deepsix_shortdeck_sim_rules_2026-08-25_v1`  
 Economy profile: `ggpoker_shortdeck_cash_2026-08-16_v1`  
-Settlement profile: `deepsix_sim_settlement_2026-08-25_v1`
+Settlement profile: `deepsix_sim_settlement_2026-08-25_v1`  
+Utility profile: `deepsix_sim_utility_2026-08-25_v1`
 
 ## Purpose
 
-The DeepSix target is an autonomous Short Deck cash-game AI running inside our own simulator. `deepsix_simulator` is therefore the first execution boundary on the critical path that does not depend on OpenHoldem, scraping, tablemaps or a live poker client.
-
-The simulator reuses the gated Core instead of reimplementing poker semantics:
+The primary DeepSix product is an autonomous Short Deck cash-game AI running inside our own simulator. `deepsix_simulator` is the first execution boundary on the critical path and has no dependency on OpenHoldem, scraping, tablemaps or a live poker client.
 
 ```text
 seeded 36-card deck
  -> versioned rules profile
- -> deepsix_core.hand / betting
+ -> Core hand/betting semantics
  -> seat-local observation
  -> legal action only
- -> board chance transitions
- -> side-pot/showdown resolution
- -> GGPoker-reference rake + BBJ
+ -> chance transitions
+ -> side-pot/showdown
+ -> GGPoker-reference rake + optional BBJ
  -> deterministic integer settlement
- -> post-hand stacks
+ -> exact per-seat utility
+ -> persistent session stacks
+ -> transcript/snapshot replay
 ```
 
-## v1 simulator rules
+## Rules v1
 
-The following are explicit simulation conventions. They are versioned so later evidence can produce v2 without rewriting historical runs.
+The following are explicit, versioned simulator conventions rather than claims about undocumented client behavior:
 
-- the published stake denomination is mapped to one ante unit;
+- published stake denomination maps to one ante unit;
 - every dealt player posts one ante;
-- the Button posts two antes total;
-- action order is clockwise from the first dealt seat left of the Dealer through the Dealer;
+- Button posts two antes total;
+- action order is clockwise from first dealt seat left of Dealer through Dealer;
 - preflop full-raise increment starts at two antes;
 - postflop minimum bet starts at two antes;
 - short all-ins are allowed;
-- prior raise rights reopen after cumulative short increases reach one full-raise increment;
-- odd chips in a tied pot layer go clockwise beginning with the first winner left of the Dealer.
+- prior raise rights reopen when cumulative short increases reach one full-raise increment;
+- odd chips in a tied layer go clockwise beginning with first tied winner left of Dealer.
 
-These choices make the simulator complete and deterministic. They are not presented as proof of undocumented live-client edge cases.
+## Economy and settlement
 
-## Economy boundary
+GGPoker is the economic reference, not the execution platform. The frozen profile uses 5% rake, the published player-count caps/default buy-ins, no invented preflop/small-pot exemption, and an optional Short Deck BBJ contribution of one ante at the 100-ante threshold.
 
-GGPoker is the economic reference, not the execution platform.
+The generic Core keeps exact `Fraction` rake. Settlement v1 floors that value to the integer simulator money unit. Aggregate rake+BBJ is allocated pro-rata across gross winners with deterministic largest remainder. This intentionally avoids inventing operator-specific side-pot rake attribution.
 
-The current profile uses:
-
-- 5% rake;
-- published player-count caps for each frozen stake;
-- published default buy-in per stake;
-- no invented preflop/small-pot exemption;
-- optional Short Deck BBJ contribution of one ante at the 100-ante threshold.
-
-The generic Core keeps exact `Fraction` rake before rounding. Simulator settlement v1 rounds rake **down to the integer monetary unit**. This is a simulator accounting choice, not a claim about client-side rounding.
-
-House deductions are calculated on the aggregate gross pot. Because operator-specific side-pot rake attribution is not part of the target, v1 allocates the final integer house deduction pro-rata across gross winners using a deterministic largest-remainder rule. This preserves exactly:
+The accounting invariant is:
 
 ```text
-sum(post_hand_player_stacks)
-= sum(pre_hand_player_stacks) - rake - BBJ
+sum(post_hand_stacks)
+= sum(pre_hand_stacks) - rounded_rake - BBJ
 ```
+
+## Utility boundary
+
+`deepsix_simulator.utility` deliberately exports both:
+
+```text
+gross_poker_delta = gross_award - contribution
+net_cash_delta    = net_award   - contribution
+```
+
+Therefore:
+
+```text
+sum(gross_poker_delta) = 0
+sum(net_cash_delta)    = -(rake + BBJ)
+```
+
+The trainer can no longer accidentally call the raked cash game zero-sum. Gross utility remains useful for mathematical subgame/oracle work; net utility is the actual simulator cash result. Both are exact integers plus `Fraction` normalization in antes.
 
 ## Environment API
 
-`SimulatedHand.start(...)` creates one seeded hand with 2..6 dealt players and arbitrary positive stacks.
+`SimulatedHand.start(...)` creates one seeded hand with 2..6 players and arbitrary positive starting stacks. Each `SimulatorObservation` contains only the acting seat's private cards plus public information. Opponent hole cards never appear in the agent observation contract.
 
-Each player receives a `SimulatorObservation` containing only:
+`SimulatedHand.act()` rejects out-of-turn/illegal actions through the Core. Board transitions are automatic. All-in/dry betting automatically runs out the remaining board. `play_to_terminal()` runs a complete closed-loop hand from a map of seat-local policy callables.
 
-- its own two hole cards;
-- public board;
-- public stacks/contributions/fold/all-in state;
-- public action history;
-- current actor;
-- legal actions only when that seat is actually to act.
+`DeepSixEnv` provides the stable trainer-worker boundary:
 
-Opponent hole cards are not exposed by the observation contract.
+- `reset(seed)`;
+- `observe(seat)`;
+- `current_observation()`;
+- `legal_actions(seat)`;
+- `step(action)` for exactly one decision.
 
-`SimulatedHand.act(seat, SimulatorAction(...))` delegates legality to the Core and rejects out-of-turn or illegal actions.
+Observation schema v1 has canonical JSON and SHA-256 fingerprints.
 
-When a betting round closes, chance transitions are automatic. If everybody remaining is all-in, the environment runs flop/turn/river automatically until showdown.
+## Replay and crash recovery
 
-`play_to_terminal()` accepts one policy callable per seat and runs a full closed-loop hand.
+`SimulatorHandTranscript` schema v1 stores post-hand audit evidence:
 
-## Session shell
+- seed;
+- starting stacks;
+- Dealer;
+- public action sequence;
+- final board;
+- private-deal SHA-256;
+- settlement SHA-256.
 
-`DeepSixTable` carries:
+`replay_transcript()` regenerates the hidden deal from the seed and requires actor, board, hidden-deal digest and settlement digest to agree.
 
-- fixed physical seats;
-- bankroll stacks;
-- Dealer rotation;
-- current stake/economy profile;
-- hand index.
+`SimulatorTableSnapshot` schema v1 captures between-hand session state:
 
-It starts each hand from the surviving funded seats, commits the terminal settlement back into session stacks and rotates the Dealer clockwise.
+- stake;
+- seats;
+- stacks including busted zero stacks;
+- Dealer;
+- hand index;
+- rules/economy versions;
+- BBJ mode.
 
-This is deliberately smaller than the final simulator. Rebuy/top-up, join/leave, batch workers and long-session logging remain later F2 gates.
+A restored table must round-trip to the same canonical snapshot before it is accepted. The continuation gate compares future transcript fingerprints/final stacks against an uninterrupted session.
 
-## Baseline policies
+## Session runner
 
-Two deterministic policies exist only for validation/integration:
+`DeepSixTable` persists bankrolls and Dealer across hands. `run_seeded_session()` executes an explicit deterministic seed schedule and records per-hand transcript fingerprints, decisions, gross pot, rake and BBJ plus final stacks and a canonical session fingerprint.
 
-- `check_call_policy`;
-- `min_raise_else_check_call_policy`.
+The current runner is intentionally single-process. We will add worker parallelism only after measuring the actual environment bottleneck.
 
-They are not poker strategy candidates. Their purpose is to force the environment through legal passive/aggressive trajectories while testing conservation and replay.
+## Validation already implemented
 
-## Current gates
+Current simulator gates include:
 
-The v1 test suite covers:
+- deterministic equal-seed deal;
+- private-information isolation;
+- out-of-turn fail-closed;
+- passive checkdown through all streets;
+- all-in auto-runout;
+- exact rake/cap/BBJ accounting;
+- odd-chip split;
+- main/side-pot winner separation;
+- canonical transcript roundtrip and exact replay;
+- seed/actor tamper rejection;
+- reset/observe/step API;
+- 60 randomized 2..6-player trajectories with asymmetric stacks and legal random actions;
+- session-level bankroll conservation;
+- exact gross-vs-net utility identities;
+- between-hand snapshot/restart equivalence;
+- simulator throughput benchmark wiring.
 
-- versioned rule conversion from stake to ante/min-raise units;
-- deterministic deal identity for equal seeds;
-- seat-local hidden-information boundary;
-- out-of-turn rejection;
-- full preflop/flop/turn/river passive checkdown;
-- exact 5% rake before rounding and integer simulator rounding;
-- automatic all-in runout;
-- player-count rake cap;
-- BBJ deduction on/off;
-- post-hand chip conservation after house deductions;
-- published default buy-in use;
-- Dealer rotation.
+Two important fixture errors were exposed by these gates and corrected instead of weakening the engine:
+
+1. folds can legitimately terminate on flop/turn, so a terminal board can contain 3 or 4 cards;
+2. `67` on `AKQ98` forms the special Short Deck `A6789` straight, so that fixture legitimately beat trips.
+
+## Performance benchmark
+
+`tools/benchmark_simulator_throughput.py` measures the pure single-process environment at 2/4/6 players using independent deterministic check/call hands. It reports hands/s, decisions/s, mean decisions/hand, gross pot and rake. CI uses only tiny wiring tests; Ryzen measurements are the engineering evidence.
+
+Example:
+
+```text
+python tools/benchmark_simulator_throughput.py --hands 10000 --players 2,4,6 --output simulator_bench.json
+```
 
 ## Still required before F2 PASS
 
-- canonical simulator hand/event history format;
-- replay from `seed + starting stacks + actions` with hash equality;
-- explicit reset/step boundary suitable for trainer workers;
-- join/leave/rebuy/top-up session semantics;
-- split/side-pot adversarial fixtures, including odd-chip cases;
-- randomized property/fuzz testing across 2..6 players and asymmetric stacks;
-- batch/multiprocess API after profiling;
-- long self-play soak with millions of hands and zero accounting/state divergence;
-- stable observation schema/version and serializer.
+- CI green for the newest snapshot/utility/session/benchmark commits;
+- larger fuzz beyond the short CI battery;
+- adversarial generated short-all-in/reopen sequences;
+- broader randomized side-pot property tests;
+- long self-play soak with zero state/accounting/replay divergence;
+- real hands/s, decisions/s and peak-memory measurements on the Ryzen 9;
+- crash-safe run manifest around long sessions;
+- deterministic shard/seed allocation for process workers;
+- multiprocess runner after profiling;
+- optional rebuy/top-up/join/leave semantics if long fixed-player-count sessions require them;
+- transcript retention policy that samples normal hands and preserves all errors/outliers without excessive I/O.
 
-Only after those gates should F2 move from `PARTIAL` to `PASS`.
+F2 becomes `PASS` only after those stability/performance gates close.
