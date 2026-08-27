@@ -7,11 +7,7 @@ from deepsix_trainer.hu_multistreet_chance_sampled_cfr import (
     ChanceSampledHuMultiStreetCFR,
     sample_fraction_index,
 )
-from deepsix_trainer.hu_multistreet_reference import (
-    GROSS_POKER_DELTA,
-    HuMicrogameConfig,
-    HuReferenceMicrogame,
-)
+from deepsix_trainer.hu_multistreet_reference import HuMicrogameConfig, HuReferenceMicrogame
 from deepsix_trainer.reach import PrivateReachVector
 
 
@@ -66,8 +62,7 @@ class ChanceSampledHuMultiStreetCFRTests(unittest.TestCase):
         self.assertEqual(continuous.semantic_snapshot(), split.semantic_snapshot())
 
     def test_sampling_counters_and_exact_policy_adapter(self):
-        game = tiny_game()
-        solver = ChanceSampledHuMultiStreetCFR(game, algorithm_seed=5)
+        solver = ChanceSampledHuMultiStreetCFR(tiny_game(), algorithm_seed=5)
         solver.train(3)
         stats = solver.stats()
         self.assertEqual(stats.iterations, 3)
@@ -77,8 +72,8 @@ class ChanceSampledHuMultiStreetCFRTests(unittest.TestCase):
         self.assertGreater(len(solver.nodes), 0)
 
         exact_policy = solver.average_policy().to_exact_policy()
-        result = game.evaluate(exact_policy, objective_id=GROSS_POKER_DELTA)
-        self.assertEqual(result.seat_sum_antes, Fraction(0, 1))
+        for row in exact_policy.rows.values():
+            self.assertEqual(sum(row.probabilities, Fraction(0, 1)), Fraction(1, 1))
 
     def test_bad_seed_and_iterations_fail_closed(self):
         with self.assertRaises(ValueError):

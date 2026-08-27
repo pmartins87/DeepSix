@@ -5,6 +5,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: deepsix-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   reference-core:
     runs-on: ubuntu-latest
