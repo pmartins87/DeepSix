@@ -1,128 +1,124 @@
 # DeepSix
 
-DeepSix é o projeto de IA para **Poker Cash Game 6+ / Short Deck**, desenvolvido para obter a maior força possível dentro de um orçamento computacional realista.
+DeepSix é o projeto de IA para **Poker Cash Game 6+ / Short Deck**, desenvolvido para maximizar força prática dentro de um orçamento computacional realista.
 
 ## Objetivo primário
 
-O alvo atual é:
+> **Uma IA autônoma capaz de jogar sessões completas 2..6 de 6+ dentro do nosso próprio simulador, com economia modelada a partir do GGPoker Short Deck e treinamento principal dimensionado para um Ryzen 9.**
 
-> **uma IA autônoma capaz de jogar sessões completas de 6+ dentro do nosso próprio simulador, com economia modelada a partir do GGPoker Short Deck e treinamento principal em um Ryzen 9.**
+GGPoker é referência econômica, não ambiente de execução. OpenHoldem6Plus/client observation permanece como trilha auxiliar de estudo/replay e não bloqueia o produto final.
 
-O projeto não depende de automatizar um cliente real para ser considerado concluído. GGPoker é a referência econômica; KKPoker permanece apenas como material histórico/comparativo de fases anteriores.
+Documentos principais:
 
-O contrato atual está em:
-
-- `docs/ROADMAP.md` — roadmap canônico completo até `READY FOR 6+ AUTONOMOUS SIMULATOR`;
-- `docs/SIMULATOR_TARGET_GGPOKER_ECONOMY_V1.md` — target/economia atual;
-- `deepsix_core/ggpoker_economy.py` — profile econômico versionado.
+- `docs/ROADMAP.md` — caminho canônico até `READY FOR 6+ AUTONOMOUS SIMULATOR`;
+- `docs/SIMULATOR_TARGET_GGPOKER_ECONOMY_V1.md` — contrato econômico atual;
+- `docs/SOLVER_ARCHITECTURE_PRECOMMIT_V1.md` — regras de promoção de arquitetura;
+- `docs/SPINCORE_SOLVER_TRANSFER_AUDIT.md` — transferência source-first de engenharia do SpinCore.
 
 ## Princípio central
 
-O objetivo não é resolver o jogo completo de forma exata. Queremos maximizar **força prática por CPU-hora**, sem desperdiçar capacidade de treino reaprendendo invariâncias que podem ser garantidas por construção.
+Não tentamos resolver o jogo completo de forma exata. O objetivo é maximizar **força/erro/cobertura por CPU-hora e memória**, usando exatidão onde ela compra correção e abstração/sampling onde a árvore explode.
 
-O orçamento de referência é um **Ryzen 9 trabalhando continuamente por semanas ou meses**, com RAM/disco e pré-computação usados de maneira explícita e mensurada.
-
-Cada aumento de complexidade precisa mostrar o que comprou em força, cobertura ou eficiência. Uma árvore maior não é promovida apenas por ser mais sofisticada.
-
-## Arquitetura atual
-
-1. **DeepSix Core** — deck, evaluator, regras, legal actions, betting/full-hand state machines, pot/side-pot accounting, canonicalização e replay.
-2. **DeepSix Simulator** — ambiente multiagente 2..6 jogadores, chance, sessões, economia e self-play. Esta é a principal peça de ambiente ainda a concluir.
-3. **Trainer/Solver** — CFR/RM+/abstrações e qualquer método posterior que vença benchmarks reproduzíveis.
-4. **Economy** — profiles GGPoker versionados, rake/caps/BBJ e settlement.
-5. **Policy Runtime** — compilação/lookup determinístico da estratégia treinada.
-6. **Validation** — oracles exatos, fuzzing, invariance tests, held-out states, replay e certificação.
-7. **OpenHoldem6Plus** — trilha auxiliar já bastante desenvolvida para observação/replay; não está no caminho crítico do simulador.
+Invariâncias verdadeiras são removidas por construção. Abstrações aproximadas precisam provar valor. Runs longas só começam depois de state/action/utility e solver family passarem pelos gates reproduzíveis.
 
 ## Estado atual
 
-### Core matemático
+### F0/F1 — contrato + Core: PASS
 
-A fundação está fortemente gated:
+Já estão gated:
 
-- 36 cartas, ranks 6..A;
+- 36 cartas 6..A;
 - 81 starting-hand classes / 630 combos;
-- evaluator 5/6/7 cartas;
-- A6789;
-- Flush > Full House;
-- exhaustive audit das 376.992 mãos de cinco cartas;
-- oracle externo PokerKit;
-- evaluator C++ baseline + lookup exato;
-- equity HU exata;
-- legal actions `FOLD/CHECK/CALL/RAISE_TO`;
-- betting-round e full-hand state machines;
-- all-ins, side pots e showdown;
-- suit/hole/flop/chair canonicalization;
-- deterministic replay/fingerprints;
-- hand fuzzing.
+- evaluator 5/6/7, A6789 e Flush > Full House;
+- exhaustive audit das 376.992 mãos de cinco cartas + PokerKit oracle;
+- C++ evaluator/lookup parity;
+- legal actions e betting/full-hand state machines;
+- full raises, short all-ins e reopen policies;
+- main/side pots, showdown, chip conservation;
+- exact suit/hole/flop/chair invariances;
+- replay/fingerprints/fuzzing.
 
-### Economia GGPoker
+### F2 — Simulator: PARTIAL AVANÇADO
 
-`ggpoker_shortdeck_cash_2026-08-16_v1` codifica a tabela pública atual usada como referência do simulador:
+O simulador já executa mãos e sessões 2..6 com hidden-information boundary, exact legal actions, board chance, all-ins, settlement, transcript/replay, snapshot/restore, deterministic shards e crash-safe soak. Robustness gates incluem 5.000 randomized pot-layer cases, 17.688 short-all-in/reopen sequences e 400 deterministic six-way asymmetric-stack stress hands.
 
-- **5% rake**;
-- nove stakes publicadas de $0.02 a $10;
-- default buy-ins;
-- caps distintos para 2 / 3 / 4 / 5+ jogadores;
-- high-stakes caps publicados em BB convertidos exatamente por stake;
-- Short Deck BBJ separado: **1 ante quando o pot alcança 100 antes**.
+Falta principalmente long soak e throughput/memória reais na máquina-alvo.
 
-O profile não inventa no-flop/small-pot exemptions não publicadas na tabela usada e não inventa client rounding. Esses detalhes permanecem explicitamente versionados no simulator contract.
+### F3 — Economy/utility: PARTIAL AVANÇADO
 
-### Laboratório de solver
+O profile GGPoker-reference v1 contém 5% rake, nove stakes, caps por player count, default buy-ins e BBJ separado. Settlement inteiro e utility por seat preservam explicitamente:
 
-Já existem:
+```text
+sum(gross poker delta) = 0
+sum(net cash delta)    = -(rake + BBJ)
+```
 
-- Kuhn CFR baseline;
-- Short Deck river microgames;
-- exact brute-force BR para árvores pequenas;
-- Dynamic Exact Best Response;
-- 1..4 bet sizes;
-- one-raise e multi-size + one-raise;
-- private-state bucketed CFR;
-- identity/equity/category/single abstractions;
-- nutness/blocker features;
-- CFV k-medoids;
-- River Benchmark Battery v3;
-- State-Abstraction Convergence v1;
-- synchronous Regret-Matching+;
-- CFR vs RM+ benchmarks;
-- Ryzen Benchmark Protocol v2 + SHA-256 analyzer/Pareto.
+### F4 — Solver lab: pronto para a primeira decisão Ryzen
 
-O próximo benchmark estratégico relevante continua sendo:
+O torneio de arquitetura já contém:
+
+- CFR;
+- Regret-Matching+;
+- external-sampling MCCFR;
+- exact BR / Dynamic Exact BR;
+- action-width experiments;
+- state abstraction/bucket experiments;
+- blocker/nutness/CFV features;
+- exact stochastic checkpoint/restart;
+- fresh-process reproduction;
+- deterministic training-stream scheduler;
+- exact per-seat private reach + blocker-compatible joint mass;
+- Ryzen Benchmark Suite v3 + SHA/Pareto analyzer.
+
+O próximo comando de evidência continua:
 
 ```text
 python tools/run_ryzen_benchmark_suite.py --profile engineering
+python tools/analyze_ryzen_benchmark_suite.py benchmark_runs/<RUN> --output analysis.json
 ```
 
-## O que ainda separa o projeto da IA final
+Nenhum solver family é vencedor presumido. Deep CFR continua condicional à evidência.
 
-O trabalho pesado restante é transformar o core/laboratório em uma política ampla:
+### F5 — HU multi-street: FUNDAÇÃO EM CONSTRUÇÃO
+
+O projeto já saiu do river-only. O `main` contém um stack de referência solver-independent:
+
+- `multistreet_state.py` — exact public/private strategic identity;
+- `multistreet_reference.py` — seeded replay/fork oracle;
+- `multistreet_chance.py` — exact fixed-private board chance;
+- `reach.py` — exact private reach / blocker-compatible joint mass;
+- `multistreet_range_chance.py` — range-weighted marginal board chance;
+- `multistreet_branch.py` — immutable explicit action/chance branching;
+- `hu_multistreet_reference.py` — primeiro exact HU imperfect-information reference game cobrindo flop→turn→river, ranges privados, chance, canonical infosets e gross/net terminal utility.
+
+O microgame v1 usa uma linha preflop passiva congelada e uma action abstraction deliberadamente pequena (`CHECK/BET_MIN` ou `FOLD/CALL`). Ele é um oracle para integrar/validar solvers, não a estratégia final.
+
+`docs/ROADMAP.md` registra quais desses gates já têm CI verde e quais continuam aguardando workflow.
+
+## Caminho até a IA final
 
 ```text
-DeepSixSimulator 2..6
- -> escolher abstraction/solver no Ryzen
- -> blueprint HU multi-street
- -> expansão 3-way até 6-way
- -> treino longo/refinement
- -> population/exploit overlay opcional
+fechar F5 reference CI
+ -> Ryzen F4 architecture evidence
+ -> long F2 soak/performance
+ -> freeze state/action/solver family
+ -> solver tabular no exact HU reference game
+ -> strategic preflop + HU blueprint amplo
+ -> 3-way ... 6-way
+ -> long adaptive training
  -> policy compiler/runtime
- -> autonomous simulator closed loop
- -> certificação
+ -> strategic autonomous self-play
+ -> certification
 ```
-
-O roadmap detalha todos os gates e subtarefas.
-
-## OpenHoldem6Plus
-
-O trabalho realizado não foi descartado. Já existem boundary C++/Python, raw snapshots, validators, conservative temporal reconstruction e contratos cross-repo. Essa trilha pode voltar a ser útil para estudo/replay/validação externa, mas **não é requisito para finalizar a IA de simulador**.
 
 ## Filosofia de engenharia
 
 - correção antes de escala;
-- evidência acima de intuição;
-- invariâncias garantidas por construção;
-- benchmark por custo real, não por aparência;
-- estratégia-base separada da exploração;
-- nenhuma run de meses antes de congelar state/action/utility suficientemente bem;
-- nenhuma tecnologia é promovida apenas porque é mais nova ou mais complexa.
+- source-first/evidence-first;
+- exact state autoritativo;
+- abstração somente com benchmark;
+- custo real por CPU-hora;
+- gross e net utility nunca confundidos;
+- strategy-base separada de exploit overlay;
+- checkpoint/restart e semantic identity desde antes das runs longas;
+- nenhuma tecnologia é promovida apenas por ser mais nova ou mais complexa.
