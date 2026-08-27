@@ -1,15 +1,19 @@
 """Exact multi-street strategic state boundary for DeepSix F5.
 
-This module is intentionally solver-facing and consumes the authoritative
-``SimulatedHand`` rather than a lossy policy observation.  Its job is to create
-a stable exact public node plus the acting player's private infoset while
-removing only mathematically exact symmetries.
+This module is solver-facing and consumes the authoritative Core ``HandState``.
+Its job is to create a stable exact public node plus the acting player's private
+infoset while removing only mathematically exact symmetries.
 
-The public node is canonicalized *before* private cards.  Global suit
+The public node is canonicalized *before* private cards. Global suit
 permutations are first used to find the canonical public board; only the
 residual suit permutations that preserve that canonical public board may then
-canonicalize the actor's hole cards.  This prevents private cards from changing
+canonicalize the actor's hole cards. This prevents private cards from changing
 the identity of a public node.
+
+`decision_state_from_components()` is the authoritative solver boundary.
+`decision_state_from_hand()` is only a convenience wrapper for the seeded
+simulator. Explicit solver branches can therefore prove identical strategic
+identity without pretending to be ``SimulatedHand`` objects.
 """
 
 from __future__ import annotations
@@ -22,10 +26,14 @@ from typing import Iterable, Sequence
 
 from deepsix_core.betting import legal_actions
 from deepsix_core.cards import SUITS, decode_card, encode_card
-from deepsix_core.hand import HandPhase
+from deepsix_core.ggpoker_economy import (
+    GGPOKER_SHORTDECK_ECONOMY_VERSION,
+    ggpoker_shortdeck_stake,
+)
+from deepsix_core.hand import HandPhase, HandState
 from deepsix_core.state import ActionKind, Street
 from deepsix_simulator.environment import SIMULATOR_ENV_VERSION, SimulatedHand
-from deepsix_core.ggpoker_economy import GGPOKER_SHORTDECK_ECONOMY_VERSION
+from deepsix_simulator.rules import SimulatorRulesProfile
 
 
 MULTISTREET_STATE_SCHEMA_VERSION = 1
@@ -249,9 +257,9 @@ def canonical_private_cards_under_public(
     return min(candidates)
 
 
-def _relative_seats(hand: SimulatedHand) -> tuple[int, ...]:
-    dealer = hand.state.dealer_seat
-    seats = {player.seat for player in hand.state.players}
+def _relative_seats(state: HandState) -> tuple[int, ...]:
+    dealer = state.dealer_seat
+    seats = {player.seat for player in state.players}
     if dealer not in seats:
         raise MultiStreetStateError("Dealer must be dealt")
     ordered = tuple(sorted(seats, key=lambda seat: ((seat - dealer) % 6)))
@@ -273,33 +281,52 @@ def _validate_street_board(street: Street, board: Sequence[int]) -> None:
         )
 
 
-def decision_state_from_hand(hand: SimulatedHand) -> PrivateDecisionState:
-    """Build the exact F5 public node + acting player's private infoset."""
-    if not isinstance(hand, SimulatedHand):
-        raise MultiStreetStateError("decision state requires a SimulatedHand")
-    hand.state.validate()
-    if hand.state.phase != HandPhase.BETTING or hand.terminal:
+def decision_state_from_components(
+    state: HandState,
+    *,
+    actor_hole_cards: Sequence[int],
+    stake_cents: int,
+    rules: SimulatorRulesProfile,
+    bbj_enabled: bool,
+) -> PrivateDecisionState:
+    """Build exact strategic identity from solver/simulator-independent components."""
+    if not isinstance(state, HandState):
+        raise MultiStreetStateError("decision state requires a HandState")
+    try:
+        state.validate()
+        rules.validate()
+        ggpoker_shortdeck_stake(stake_cents)
+    except Exception as exc:
+        raise MultiStreetStateError(str(exc)) from exc
+    if state.config != rules.hand_config(stake_cents):
+        raise MultiStreetStateError("HandState config differs from rules/stake profile")
+    if not isinstance(bbj_enabled, bool):
+        raise MultiStreetStateError("bbj_enabled must be bool")
+    if state.phase != HandPhase.BETTING:
         raise MultiStreetStateError("decision state requires an open betting decision")
 
-    actor = hand.actor_seat
-    if actor is None or actor not in hand.hole_cards:
+    actor = state.betting_round.next_actor
+    if actor is None:
         raise MultiStreetStateError("open decision is missing a valid acting seat")
-    _validate_street_board(hand.state.street, hand.state.board)
+    _validate_street_board(state.street, state.board)
 
-    ordered = _relative_seats(hand)
+    ordered = _relative_seats(state)
     seat_to_position = {seat: position for position, seat in enumerate(ordered)}
     if actor not in seat_to_position:
         raise MultiStreetStateError("acting seat is not dealt")
 
-    canonical_board, residual = canonical_public_board(hand.state.board)
-    hero_cards = canonical_private_cards_under_public(hand.hole_cards[actor], residual)
-    if set(hand.hole_cards[actor]) & set(hand.state.board):
+    raw_actor_cards = tuple(actor_hole_cards)
+    if len(raw_actor_cards) != 2:
+        raise MultiStreetStateError("actor private hand must contain exactly two cards")
+    canonical_board, residual = canonical_public_board(state.board)
+    hero_cards = canonical_private_cards_under_public(raw_actor_cards, residual)
+    if set(raw_actor_cards) & set(state.board):
         raise MultiStreetStateError("actor private cards collide with public board")
 
     round_by_seat = {
-        player.seat: player for player in hand.state.betting_round.players
+        player.seat: player for player in state.betting_round.players
     }
-    hand_by_seat = {player.seat: player for player in hand.state.players}
+    hand_by_seat = {player.seat: player for player in state.players}
     if set(round_by_seat) != set(ordered) or set(hand_by_seat) != set(ordered):
         raise MultiStreetStateError("hand/round seat support drift")
 
@@ -326,13 +353,13 @@ def decision_state_from_hand(hand: SimulatedHand) -> PrivateDecisionState:
         Street.TURN: 2,
         Street.RIVER: 3,
     }
-    for expected_seq, action in enumerate(hand.state.actions):
+    for expected_seq, action in enumerate(state.actions):
         if action.seq != expected_seq:
             raise MultiStreetStateError("action history must be contiguous from zero")
         if action.actor_seat not in seat_to_position:
             raise MultiStreetStateError("action actor is not dealt")
         current_index = street_index[action.street]
-        if current_index < previous_street_index or current_index > street_index[hand.state.street]:
+        if current_index < previous_street_index or current_index > street_index[state.street]:
             raise MultiStreetStateError("action street history is inconsistent")
         previous_street_index = current_index
         actions.append(
@@ -345,31 +372,31 @@ def decision_state_from_hand(hand: SimulatedHand) -> PrivateDecisionState:
             )
         )
 
-    round_state = hand.state.betting_round
+    round_state = state.betting_round
     legal = legal_actions(round_state)
     if round_state.next_actor != actor:
         raise MultiStreetStateError("betting-round actor drift")
     if max(seat.committed_street for seat in seats) != round_state.current_bet:
         raise MultiStreetStateError("current bet differs from exact street commitments")
-    if sum(seat.committed_total for seat in seats) != hand.state.pot():
+    if sum(seat.committed_total for seat in seats) != state.pot():
         raise MultiStreetStateError("public pot differs from exact total commitments")
 
     public = PublicDecisionState(
         schema_version=MULTISTREET_STATE_SCHEMA_VERSION,
         env_version=SIMULATOR_ENV_VERSION,
-        rules_version=hand.rules.version,
+        rules_version=rules.version,
         economy_version=GGPOKER_SHORTDECK_ECONOMY_VERSION,
-        stake_cents=hand.stake_cents,
-        bbj_enabled=hand.bbj_enabled,
-        street=hand.state.street,
+        stake_cents=stake_cents,
+        bbj_enabled=bbj_enabled,
+        street=state.street,
         num_players=len(ordered),
         dealer_position=0,
         actor_position=seat_to_position[actor],
         board=canonical_board,
         seats=seats,
         actions=tuple(actions),
-        ante=hand.state.config.ante,
-        pot=hand.state.pot(),
+        ante=state.config.ante,
+        pot=state.pot(),
         current_bet=round_state.current_bet,
         last_full_raise_increment=round_state.last_full_raise_increment,
         legal=PublicLegalState(
@@ -388,4 +415,22 @@ def decision_state_from_hand(hand: SimulatedHand) -> PrivateDecisionState:
         public=public,
         hero_position=seat_to_position[actor],
         hero_cards=hero_cards,
+    )
+
+
+def decision_state_from_hand(hand: SimulatedHand) -> PrivateDecisionState:
+    """Convenience wrapper preserving the seeded simulator API."""
+    if not isinstance(hand, SimulatedHand):
+        raise MultiStreetStateError("decision state requires a SimulatedHand")
+    if hand.terminal:
+        raise MultiStreetStateError("decision state requires an open betting decision")
+    actor = hand.actor_seat
+    if actor is None or actor not in hand.hole_cards:
+        raise MultiStreetStateError("open decision is missing a valid acting seat")
+    return decision_state_from_components(
+        hand.state,
+        actor_hole_cards=hand.hole_cards[actor],
+        stake_cents=hand.stake_cents,
+        rules=hand.rules,
+        bbj_enabled=hand.bbj_enabled,
     )
